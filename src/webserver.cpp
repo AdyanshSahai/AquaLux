@@ -2,24 +2,32 @@
 //  webserver.cpp — Embedded HTML page and HTTP route handlers
 //
 //  Routes:
-//    GET  /        — serve the full single-page UI from PROGMEM
-//    GET  /status  — JSON snapshot of time + all sensor/alarm states
-//    POST /save    — write new settings to NVS and reboot
+//    GET  /        — serve the test-panel UI from PROGMEM
+//    GET  /status  — JSON snapshot of time + all sensor/buzzer states
+//    POST /buzzer  — manually drive BUZZER_PIN for hardware testing
+//    POST /save    — write new WiFi/alarm settings to NVS and reboot
 // ============================================================
 
 #include "webserver.h"
 
+// ── buzzerTestState ───────────────────────────────────────────
+// Tracks the manually-set buzzer state from the test UI.
+// File-scoped so only this translation unit touches it.
+// The alarm system (alarm.cpp) overrides the pin directly while alarmActive,
+// but this flag reflects what the test UI last requested.
+static bool buzzerTestState = false;
+
 // ── INDEX_HTML ────────────────────────────────────────────────
-// Complete single-page configuration UI stored in program flash (PROGMEM).
-// Dark theme, mobile-first. Polls /status every 2 s for live data.
-// static = file-scoped; no other translation unit needs to see this symbol.
+// Test-panel UI stored in program flash (PROGMEM). Dark theme, mobile-first.
+// Shows live sensor states and lets the user toggle the buzzer for hardware testing.
+// Polls /status every 500 ms for responsive feedback.
 static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AquaLux</title>
+  <title>AquaLux Test</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,271 +35,246 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       background: #0d0d0d;
       color: #e0e0e0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      padding: 20px 16px 48px;
-      max-width: 480px;
+      padding: 24px 16px 48px;
+      max-width: 420px;
       margin: 0 auto;
     }
 
-    h1 { font-size: 1.7rem; font-weight: 700; color: #fff; margin-bottom: 3px; }
-    .sub { font-size: 0.78rem; color: #555; margin-bottom: 24px; }
+    h1 { font-size: 1.4rem; font-weight: 700; color: #fff; }
+    .sub { font-size: 0.75rem; color: #555; margin-bottom: 24px; margin-top: 2px; }
+
+    .time {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      margin-bottom: 20px;
+    }
 
     .card {
-      background: #161616;
-      border: 1px solid #212121;
+      background: #141414;
+      border: 1px solid #1f1f1f;
       border-radius: 14px;
-      padding: 18px 16px;
+      overflow: hidden;
       margin-bottom: 14px;
     }
 
-    .card-title {
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #4a4a4a;
-      margin-bottom: 14px;
-    }
-
-    .time-big {
-      font-size: 2.5rem;
-      font-weight: 700;
-      text-align: center;
-      color: #fff;
-      letter-spacing: 0.06em;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .alarm-note {
-      text-align: center;
-      font-size: 0.78rem;
-      color: #666;
-      margin-top: 6px;
-    }
-
-    .alarm-note.ringing { color: #f59e0b; font-weight: 600; }
-
-    .sensor-row {
+    .row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 9px 0;
-      border-bottom: 1px solid #1c1c1c;
-      font-size: 0.88rem;
+      padding: 14px 16px;
+      border-bottom: 1px solid #1a1a1a;
     }
 
-    .sensor-row:last-child { border-bottom: none; }
+    .row:last-child { border-bottom: none; }
 
-    .dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      background: #2a2a2a;
+    .label {
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: #222;
+      color: #555;
+      min-width: 42px;
+      text-align: center;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .badge.on  { background: #14532d; color: #4ade80; }
+    .badge.off { background: #1f1f1f; color: #555;    }
+
+    /* ── Toggle switch (used for the controllable buzzer row) ── */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
       flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 24px;
+      cursor: pointer;
       transition: background 0.2s;
     }
 
-    .dot.on  { background: #22c55e; }
-    .dot.off { background: #3a3a3a; }
-
-    label {
-      display: block;
-      font-size: 0.78rem;
-      color: #666;
-      margin-bottom: 5px;
-      margin-top: 13px;
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      background: #888;
+      border-radius: 50%;
+      transition: transform 0.2s, background 0.2s;
     }
 
-    label:first-of-type { margin-top: 0; }
-
-    input[type="text"],
-    input[type="password"],
-    input[type="time"] {
-      display: block; width: 100%;
-      background: #0d0d0d;
-      border: 1px solid #252525;
-      border-radius: 9px;
-      color: #e0e0e0;
-      font-size: 0.95rem;
-      padding: 10px 12px;
-      outline: none;
-      transition: border-color 0.15s;
-      -webkit-appearance: none;
-    }
-
-    input:focus { border-color: #3b82f6; }
-
-    .btn {
-      display: block; width: 100%;
-      margin-top: 18px; padding: 13px;
-      background: #1d4ed8;
-      color: #fff; border: none;
-      border-radius: 10px;
-      font-size: 0.95rem; font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    .btn:active { background: #1e40af; }
-
-    #msg {
-      text-align: center;
-      font-size: 0.8rem;
-      color: #22c55e;
-      min-height: 20px;
-      margin-top: 10px;
+    .toggle input:checked + .slider { background: #166534; }
+    .toggle input:checked + .slider::before {
+      transform: translateX(20px);
+      background: #4ade80;
     }
   </style>
 </head>
 <body>
 
   <h1>AquaLux</h1>
-  <p class="sub">Hydration alarm &mdash; connected to AP</p>
+  <p class="sub">Hardware test panel</p>
+  <div class="time" id="cur-time">--:--:--</div>
 
-  <!-- Clock + alarm status -->
+  <!-- Controllable outputs -->
   <div class="card">
-    <div class="card-title">Current Time</div>
-    <div class="time-big" id="cur-time">--:--:--</div>
-    <div class="alarm-note" id="alarm-note">Loading...</div>
+
+    <!-- Buzzer: interactive toggle — actually drives BUZZER_PIN via /buzzer -->
+    <div class="row">
+      <span class="label">Buzzer</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-buzzer" onchange="setBuzzer(this.checked)">
+        <span class="slider"></span>
+      </label>
+    </div>
+
   </div>
 
-  <!-- Live sensor states -->
+  <!-- Live sensor states (read-only indicators) -->
   <div class="card">
-    <div class="card-title">Sensor Status</div>
-    <div class="sensor-row">
-      <span>Light / wake detected</span>
-      <div class="dot" id="d-light"></div>
-    </div>
-    <div class="sensor-row">
-      <span>Bottle present (IR)</span>
-      <div class="dot" id="d-bottle"></div>
-    </div>
-    <div class="sensor-row">
-      <span>Bottle emptied (spring)</span>
-      <div class="dot" id="d-spring"></div>
-    </div>
-    <div class="sensor-row">
-      <span>Alarm ringing</span>
-      <div class="dot" id="d-alarm"></div>
-    </div>
-  </div>
 
-  <!-- Settings form -->
-  <div class="card">
-    <div class="card-title">Settings</div>
-    <label for="f-alarm">Alarm Time</label>
-    <input type="time" id="f-alarm" value="07:00">
-    <label for="f-ssid">Home WiFi Network</label>
-    <input type="text"     id="f-ssid" placeholder="Network name" autocomplete="off" spellcheck="false">
-    <label for="f-pass">WiFi Password</label>
-    <input type="password" id="f-pass" placeholder="Password"     autocomplete="off">
-    <button class="btn" onclick="save()">Save &amp; Reboot</button>
-    <div id="msg"></div>
+    <div class="row">
+      <span class="label">IR — bottle present</span>
+      <span class="badge off" id="b-bottle">OFF</span>
+    </div>
+
+    <div class="row">
+      <span class="label">Spring — bottle empty</span>
+      <span class="badge off" id="b-spring">OFF</span>
+    </div>
+
+    <div class="row">
+      <span class="label">Light / photo</span>
+      <span class="badge off" id="b-light">OFF</span>
+    </div>
+
+    <div class="row">
+      <span class="label">Alarm active</span>
+      <span class="badge off" id="b-alarm">OFF</span>
+    </div>
+
   </div>
 
   <script>
-    let alarmPrefilled = false; // Only auto-fill alarm input from /status once per page load
+    // Update a read-only badge element based on a boolean state
+    function badge(id, on) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = on ? 'ON' : 'OFF';
+      el.className   = 'badge ' + (on ? 'on' : 'off');
+    }
 
+    // Poll /status every 500 ms — faster interval for hardware testing
     async function poll() {
       try {
         const r    = await fetch('/status');
         const data = await r.json();
 
-        // Update the clock display
         document.getElementById('cur-time').textContent = data.time || '--:--:--';
 
-        // Update the alarm state note below the clock
-        const note = document.getElementById('alarm-note');
-        if (data.alarmActive) {
-          note.textContent = 'Alarm is ringing now!';
-          note.className   = 'alarm-note ringing';
-        } else {
-          note.textContent = 'Next alarm: ' + (data.alarmTime || '--:--');
-          note.className   = 'alarm-note';
-        }
+        // Sync the buzzer toggle to the last known hardware state
+        // (alarm may have overridden it, so reflect the actual pin state)
+        document.getElementById('toggle-buzzer').checked = !!data.buzzerOn;
 
-        // Update sensor indicator dots
-        setDot('d-light',  data.lightDetected);
-        setDot('d-bottle', data.bottlePresent);
-        setDot('d-spring', data.springExtended);
-        setDot('d-alarm',  data.alarmActive);
-
-        // Pre-fill the alarm input with the stored value — only once so user edits aren't overwritten
-        if (!alarmPrefilled && data.alarmTime) {
-          document.getElementById('f-alarm').value = data.alarmTime;
-          alarmPrefilled = true;
-        }
+        badge('b-bottle', data.bottlePresent);
+        badge('b-spring', data.springExtended);
+        badge('b-light',  data.lightDetected);
+        badge('b-alarm',  data.alarmActive);
 
       } catch (_) {
-        // Silently ignore — device may be briefly busy or rebooting after save
+        // Silently ignore — board may be briefly busy
       }
     }
 
-    function setDot(id, active) {
-      const el = document.getElementById(id);
-      if (el) el.className = 'dot ' + (active ? 'on' : 'off');
-    }
-
-    async function save() {
-      const params = new URLSearchParams({
-        alarm: document.getElementById('f-alarm').value,
-        ssid:  document.getElementById('f-ssid').value,
-        pass:  document.getElementById('f-pass').value,
-      });
-      const msg = document.getElementById('msg');
+    // POST to /buzzer with on=1 or on=0 to drive the pin directly
+    async function setBuzzer(on) {
       try {
-        const r = await fetch('/save', { method: 'POST', body: params });
-        if (r.ok) {
-          msg.textContent = 'Saved! Device is rebooting...';
-          msg.style.color = '#22c55e';
-        } else {
-          msg.textContent = 'Server error — try again';
-          msg.style.color = '#ef4444';
-        }
-      } catch (_) {
-        msg.textContent = 'Could not reach device';
-        msg.style.color = '#ef4444';
-      }
+        await fetch('/buzzer', {
+          method: 'POST',
+          body: new URLSearchParams({ on: on ? '1' : '0' })
+        });
+      } catch (_) {}
     }
 
-    poll();                    // First poll immediately on page load
-    setInterval(poll, 2000);   // Then every 2 seconds
+    poll();
+    setInterval(poll, 500); // 500 ms for snappy feedback during testing
   </script>
+
 </body>
 </html>
 )rawliteral";
 
 // ── setupWebServer ────────────────────────────────────────────
 // Registers all HTTP route handlers and starts listening on port 80.
-// The serverStarted flag prevents accidental double-initialisation
-// (e.g. syncNTP() calls WiFi.softAP again, which could prompt a second call here).
+// serverStarted flag prevents double-init if called more than once.
 void setupWebServer() {
     if (serverStarted) return; // Already running — do nothing
 
     // ── GET / ─────────────────────────────────────────────────
-    // Serve the embedded HTML page directly from PROGMEM (no filesystem required)
+    // Serve the test panel from PROGMEM
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send_P(200, "text/html", INDEX_HTML); // send_P streams from flash, not RAM
+        request->send_P(200, "text/html", INDEX_HTML); // send_P streams directly from flash
     });
 
     // ── GET /status ───────────────────────────────────────────
-    // Returns a JSON snapshot of the current time and all sensor/alarm states.
-    // The web page polls this endpoint every 2 seconds to update the UI.
+    // JSON snapshot of time + all sensor/output states.
+    // Polled every 500 ms by the test panel.
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        // Build a flat JSON string manually — avoids pulling in ArduinoJson for such a simple payload
         String t = timeClient.isTimeSet() ? timeClient.getFormattedTime() : "--:--:--";
         String j = "{";
-        j += "\"time\":"           "\"" + t             + "\",";
-        j += "\"alarmTime\":"      "\"" + alarmTimeStr  + "\",";
-        j += "\"alarmActive\":"        + String(alarmActive     ? "true" : "false") + ",";
-        j += "\"lightDetected\":"      + String(lightDetected   ? "true" : "false") + ",";
-        j += "\"bottlePresent\":"      + String(bottlePresent   ? "true" : "false") + ",";
-        j += "\"springExtended\":"     + String(springExtended  ? "true" : "false");
+        j += "\"time\":"           "\"" + t                  + "\",";
+        j += "\"alarmTime\":"      "\"" + alarmTimeStr        + "\",";
+        j += "\"buzzerOn\":"           + String(buzzerTestState  ? "true" : "false") + ",";
+        j += "\"alarmActive\":"        + String(alarmActive      ? "true" : "false") + ",";
+        j += "\"lightDetected\":"      + String(lightDetected    ? "true" : "false") + ",";
+        j += "\"bottlePresent\":"      + String(bottlePresent    ? "true" : "false") + ",";
+        j += "\"springExtended\":"     + String(springExtended   ? "true" : "false");
         j += "}";
         request->send(200, "application/json", j);
     });
 
+    // ── POST /buzzer ──────────────────────────────────────────
+    // Manually drive BUZZER_PIN for hardware testing.
+    // Body param: on=1 (buzzer on) or on=0 (buzzer off).
+    // Note: if alarmActive is true, alarm.cpp will override the pin every ~50 ms.
+    server.on("/buzzer", HTTP_POST, [](AsyncWebServerRequest *request) {
+        bool on = request->hasParam("on", true) &&
+                  request->getParam("on", true)->value() == "1"; // true if on=1
+        buzzerTestState = on;                   // Track the requested state
+        digitalWrite(BUZZER_PIN, on ? HIGH : LOW); // Drive pin directly
+        Serial.printf("[TEST] Buzzer manually set %s\n", on ? "ON" : "OFF");
+        request->send(200, "text/plain", "OK");
+    });
+
     // ── POST /save ────────────────────────────────────────────
-    // Receives new settings from the form, writes them to NVS, and reboots.
+    // Write new WiFi credentials and alarm time to NVS, then reboot.
+    // Kept for completeness — not exposed in the test UI but reachable via curl/etc.
     server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request) {
-        // hasParam(key, true) checks the POST body; second arg true = body params, not URL params
         String newAlarm = request->hasParam("alarm", true)
                           ? request->getParam("alarm", true)->value() : alarmTimeStr;
         String newSSID  = request->hasParam("ssid",  true)
@@ -299,21 +282,20 @@ void setupWebServer() {
         String newPass  = request->hasParam("pass",  true)
                           ? request->getParam("pass",  true)->value() : storedPassword;
 
-        preferences.begin(PREF_NAMESPACE, false); // Open NVS in read-write mode
+        preferences.begin(PREF_NAMESPACE, false);
         preferences.putString(PREF_KEY_SSID,  newSSID);
         preferences.putString(PREF_KEY_PASS,  newPass);
         preferences.putString(PREF_KEY_ALARM, newAlarm);
-        preferences.end(); // Flush to flash and close handle
+        preferences.end();
 
         Serial.printf("[SAVE] Stored SSID='%s'  Alarm='%s' — rebooting\n",
                       newSSID.c_str(), newAlarm.c_str());
-
-        request->send(200, "text/plain", "OK"); // Send response before rebooting so client sees confirmation
-        delay(300);      // Give AsyncTCP time to flush the response packet to the client
-        ESP.restart();   // Hard reboot — fresh boot will load the newly saved settings
+        request->send(200, "text/plain", "OK");
+        delay(300);
+        ESP.restart();
     });
 
-    server.begin();       // Start accepting connections on port 80
-    serverStarted = true; // Mark started so a second call is a no-op
+    server.begin();
+    serverStarted = true;
     Serial.println("[SERVER] Web server running at " AP_GATEWAY_IP);
 }
