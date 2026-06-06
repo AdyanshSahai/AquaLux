@@ -49,8 +49,10 @@
 
 void setup() {
     // ── Serial monitor ────────────────────────────────────────
-    Serial.begin(115200); // 115200 baud — must match monitor_speed in platformio.ini
-    delay(500);           // Wait for serial monitor to attach before printing boot messages
+    Serial.begin(115200);
+    Serial.setTxTimeoutMs(0); // ESP32-S2 uses USB CDC — without this, Serial.print blocks/drops
+                               // output if the USB host isn't ready yet; 0 = never block, just drop
+    delay(2000);              // Give USB CDC time to enumerate before printing anything
     Serial.println("\n===== AquaLux BOOT =====");
 
     // ── Pin configuration ─────────────────────────────────────
