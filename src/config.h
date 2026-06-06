@@ -7,7 +7,7 @@
 // ============================================================
 
 // ── Output pins ──────────────────────────────────────────────
-#define BUZZER_PIN             34   // ← CHANGE ME — digital output
+#define BUZZER_PIN             14   // ← CHANGE ME — digital output
                                     // HIGH drives 2N2222 base via series resistor
                                     // → transistor saturates → active buzzer sounds
 
@@ -21,24 +21,16 @@
                                     // LOW  = bottle weight compresses spring (bottle present, possibly full)
                                     // HIGH = spring extends when bottle is empty / removed
 
-#define RESET_PIN               9   // ← CHANGE ME — digital input, internal pull-up enabled
+#define RESET_PIN               33   // ← CHANGE ME — digital input, internal pull-up enabled
                                     // Active LOW: hold for RESET_HOLD_MS → factory reset
 
-// ── TEMPORARY light-detection pin ────────────────────────────
-// TEMPORARY SUBSTITUTION — uncomment and replace with photoresistor on analog pin when available
-// This pushbutton stands in for the photoresistor until the voltage-divider circuit is fitted.
-#define LIGHT_BUTTON_PIN       6   // ← CHANGE ME — digital input, internal pull-up enabled
-                                    // TEMP: pushbutton, active LOW
-                                    // Press = signal that "lights are on" (dismissal condition)
-
 // ── COMMENTED OUT: future photoresistor on analog pin ────────
-// TEMPORARY SUBSTITUTION — uncomment and replace with photoresistor on analog pin when available
-// #define PHOTO_PIN             4   // Analog GPIO for photoresistor voltage-divider
-//                                   // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
-//                                   // When lit  : photoresistor resistance drops → voltage rises → ADC high
-//                                   // When dark : photoresistor resistance high  → voltage falls → ADC low
-// #define LIGHT_THRESHOLD    2000   // ADC dismissal threshold (12-bit range: 0 dark → 4095 bright)
-//                                   // Tune: measure ADC with room lights on, set to ~80% of that reading
+#define PHOTO_PIN             15   // Analog GPIO for photoresistor voltage-divider
+                                  // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
+                                  // When lit  : photoresistor resistance drops → voltage rises → ADC high
+                                  // When dark : photoresistor resistance high  → voltage falls → ADC low
+#define LIGHT_THRESHOLD    2000   // ADC dismissal threshold (12-bit range: 0 dark → 4095 bright)
+                                  // Tune: measure ADC with room lights on, set to ~80% of that reading
 
 // ── Timing constants (all in milliseconds unless noted) ──────
 #define BUZZER_ON_MS            500  // Buzzer stays ON for this long each alarm pulse
