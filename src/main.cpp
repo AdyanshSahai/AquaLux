@@ -59,7 +59,7 @@ void setup() {
 
     pinMode(IR_PRESENCE_PIN,    INPUT);        // IR module has on-board pull-up — do NOT add internal
     pinMode(SPRING_SWITCH_PIN,  INPUT_PULLUP); // Internal pull-up; spring HIGH when free (bottle empty)
-    pinMode(LIGHT_BUTTON_PIN,   INPUT_PULLUP); // Internal pull-up; LOW when button pressed (temp sub)
+    pinMode(PHOTO_PIN,          INPUT);        // Analog input for photoresistor voltage-divider; no pull-up (divider biases the pin)
     pinMode(RESET_PIN,          INPUT_PULLUP); // Internal pull-up; LOW = button pressed = counting down
 
     Serial.println("[SETUP] Pins configured");
