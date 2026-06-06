@@ -31,7 +31,8 @@
                                   // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
                                   // When lit  : photoresistor resistance drops → voltage rises → ADC high
                                   // When dark : photoresistor resistance high  → voltage falls → ADC low
-#define LIGHT_THRESHOLD    2000   // ADC dismissal threshold (12-bit range: 0 dark → 4095 bright)
+#define LIGHT_THRESHOLD     300   // TEMPORARY low value for calibration — raise after confirming sensor works
+                                  // ADC dismissal threshold (12-bit range: 0 dark → 4095 bright)
                                   // Tune: measure ADC with room lights on, set to ~80% of that reading
 
 // ── Timing constants (all in milliseconds unless noted) ──────
