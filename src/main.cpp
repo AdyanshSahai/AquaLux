@@ -138,9 +138,10 @@ void loop() {
         }
     }
 
-    // ── 3. Active alarm handling ──────────────────────────────
+    // ── 3. Sensor read (every iteration) + active alarm handling ──
+    readSensors(); // Always refresh sensor globals so the web UI stays live even without an active alarm
+
     if (alarmActive) {
-        readSensors();        // Refresh bottlePresent, springExtended, lightDetected from hardware
         updateBuzzerPulse();  // Toggle buzzer ON/OFF per BUZZER_ON_MS / BUZZER_OFF_MS (non-blocking)
         handleAlarmDismiss(); // Run 2 s debounce; silences alarm if all conditions held long enough
     }
