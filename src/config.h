@@ -12,7 +12,7 @@
                                     // → transistor saturates → active buzzer sounds
 
 // ── Permanent digital input pins ─────────────────────────────
-#define IR_PRESENCE_PIN         15  // ← CHANGE ME — digital input, no internal pull-up needed
+#define IR_PRESENCE_PIN         7   // ← CHANGE ME — digital input, no internal pull-up needed
                                     // IR obstacle-detection module has its own pull-up resistor
                                     // HIGH = IR reflection detected = bottle is on the platform
 
