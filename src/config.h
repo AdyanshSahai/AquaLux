@@ -12,7 +12,7 @@
                                     // → transistor saturates → active buzzer sounds
 
 // ── Permanent digital input pins ─────────────────────────────
-#define IR_PRESENCE_PIN         7   // ← CHANGE ME — digital input, no internal pull-up needed
+#define IR_PRESENCE_PIN         15   // ← CHANGE ME — digital input, no internal pull-up needed
                                     // IR obstacle-detection module has its own pull-up resistor
                                     // HIGH = IR reflection detected = bottle is on the platform
 
@@ -25,7 +25,7 @@
                                     // Active LOW: hold for RESET_HOLD_MS → factory reset
 
 // ── COMMENTED OUT: future photoresistor on analog pin ────────
-#define PHOTO_PIN             15   // Analog GPIO for photoresistor voltage-divider
+#define PHOTO_PIN             7   // Analog GPIO for photoresistor voltage-divider
                                   // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
                                   // When lit  : photoresistor resistance drops → voltage rises → ADC high
                                   // When dark : photoresistor resistance high  → voltage falls → ADC low
