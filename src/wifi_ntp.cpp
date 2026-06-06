@@ -24,7 +24,8 @@ void parseAlarmTime(const String &timeStr) {
 // Reads NVS for WiFi credentials and alarm time, updates global config variables.
 // Returns true if a non-empty SSID was found (credentials are available for NTP sync).
 bool loadPreferences() {
-    preferences.begin(PREF_NAMESPACE, true);  // Open read-only; false = read-write
+    preferences.begin(PREF_NAMESPACE, false); // Read-write so namespace is created on first boot;
+                                              // read-only (true) fails with NOT_FOUND on a fresh device
 
     storedSSID     = preferences.getString(PREF_KEY_SSID,  "");                // "" if key doesn't exist
     storedPassword = preferences.getString(PREF_KEY_PASS,  "");
@@ -70,6 +71,7 @@ bool syncNTP() {
     }
 
     Serial.println("[NTP] Connected — requesting time...");
+    timeClient.begin();       // Open UDP socket — must be called after WiFi stack is up
     timeClient.forceUpdate(); // Block until NTP UDP response arrives (or internal timeout)
 
     bool synced = timeClient.isTimeSet(); // Verify we got a valid epoch timestamp

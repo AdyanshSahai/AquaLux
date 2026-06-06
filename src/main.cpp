@@ -67,20 +67,20 @@ void setup() {
     // ── Load stored configuration from NVS ────────────────────
     bool hasCreds = loadPreferences(); // Populates storedSSID, storedPassword, alarmHour, alarmMinute
 
-    // ── Initialise NTP UDP socket ─────────────────────────────
-    // begin() just opens the UDP port — no WiFi needed yet; actual sync is inside syncNTP()
-    timeClient.begin();
-
     // ── NTP sync or first-time AP setup ───────────────────────
+    // IMPORTANT: timeClient.begin() opens a lwIP UDP socket and must be called AFTER the WiFi
+    // stack is initialised (i.e. after WiFi.mode()). Calling it before WiFi.mode() causes an
+    // "Invalid mbox" assertion crash inside tcpip_send_msg_wait_sem.
     if (hasCreds) {
         // Credentials available — sync time before opening the AP so the clock is correct immediately
         Serial.println("[SETUP] Credentials found — running NTP sync");
-        syncNTP(); // Connects → syncs → disconnects → sets WIFI_AP → calls WiFi.softAP()
+        syncNTP(); // Calls WiFi.mode(AP_STA), connects, timeClient.begin()+forceUpdate, disconnects, softAP
     } else {
-        // No credentials stored — go straight to AP mode for first-time configuration
+        // No credentials — bring up AP first, then open the UDP socket for NTP
         Serial.println("[SETUP] No credentials — entering AP setup mode");
         WiFi.mode(WIFI_AP);
-        WiFi.softAP(AP_SSID); // Open AP, no password
+        WiFi.softAP(AP_SSID);           // Open AP, no password
+        timeClient.begin();              // Safe here — WiFi stack is now initialised
         Serial.printf("[SETUP] AP up: SSID='%s'  IP=%s\n", AP_SSID, AP_GATEWAY_IP);
     }
 
