@@ -38,6 +38,7 @@ unsigned long dismissStartMs    = 0;
 bool bottlePresent  = false; // Updated by readSensors()
 bool springExtended = false;
 bool lightDetected  = false;
+int  photoRawValue  = 0;     // Last raw ADC reading — exposed in /status for calibration
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 bool ntpResynced3am = false;

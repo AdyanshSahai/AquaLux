@@ -16,10 +16,11 @@
                                     // IR obstacle-detection module has its own pull-up resistor
                                     // HIGH = IR reflection detected = bottle is on the platform
 
-#define SPRING_SWITCH_PIN       8   // ← CHANGE ME — digital input, internal pull-up enabled
+#define SPRING_SWITCH_PIN       8   // ← CHANGE ME — digital input, internal pull-DOWN enabled
                                     // CUSTOM SPRING SWITCH (homemade card + 3D-printed spring)
-                                    // LOW  = bottle weight compresses spring (bottle present, possibly full)
-                                    // HIGH = spring extends when bottle is empty / removed
+                                    // Wired: switch between SPRING_SWITCH_PIN and 3.3V
+                                    // LOW  = switch open  = spring compressed = bottle present
+                                    // HIGH = switch closed to 3.3V = spring extended = bottle empty/removed
 
 #define RESET_PIN               38   // ← CHANGE ME — digital input, internal pull-up enabled
                                     // Active LOW: hold for RESET_HOLD_MS → factory reset
@@ -31,9 +32,9 @@
                                   // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
                                   // When lit  : photoresistor resistance drops → voltage rises → ADC high
                                   // When dark : photoresistor resistance high  → voltage falls → ADC low
-#define LIGHT_THRESHOLD     300   // TEMPORARY low value for calibration — raise after confirming sensor works
-                                  // ADC dismissal threshold (12-bit range: 0 dark → 4095 bright)
-                                  // Tune: measure ADC with room lights on, set to ~80% of that reading
+#define LIGHT_THRESHOLD    7900   // ESP32-S2 has a 13-bit ADC (0–8191, not 0–4095)
+                                  // Calibrated: lights OFF + curtains open ≈ 7608, lights ON ≈ 8191
+                                  // 7900 sits cleanly between the two — raise if false-triggers on bright days
 
 // ── Timing constants (all in milliseconds unless noted) ──────
 #define BUZZER_ON_MS            500  // Buzzer stays ON for this long each alarm pulse

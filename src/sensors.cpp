@@ -14,6 +14,7 @@ void readSensors() {
     // Bright light → low resistance → high voltage → high ADC reading.
     // Above LIGHT_THRESHOLD = lights are on (alarm dismissal condition satisfied).
     int  photoRaw = analogRead(PHOTO_PIN);           // 12-bit ADC: 0 = dark, 4095 = max brightness
+    photoRawValue = photoRaw;                        // Store for /status endpoint calibration display
     lightDetected = (photoRaw > LIGHT_THRESHOLD);    // Above threshold = ambient light present
     Serial.printf("[SENSOR] Photo ADC=%d  threshold=%d\n", photoRaw, LIGHT_THRESHOLD);
 
@@ -29,9 +30,11 @@ void readSensors() {
     bottlePresent = (irRaw == HIGH);               // HIGH = bottle blocking / reflecting IR beam
 
     // ── Weight / spring-switch state ──────────────────────────
-    // CUSTOM SPRING SWITCH — reads LOW when bottle weight compresses spring, HIGH when bottle is empty and spring extends
-    bool springRaw = digitalRead(SPRING_SWITCH_PIN); // Pulled up internally; goes LOW when compressed
-    springExtended = (springRaw == HIGH);             // HIGH = spring free = bottle has been emptied / lifted
+    // CUSTOM SPRING SWITCH — one side wired to 3.3V, other side to SPRING_SWITCH_PIN (INPUT_PULLDOWN)
+    // Open (bottle on platform, spring compressed) → pin pulled to GND by internal pulldown → LOW
+    // Closed (bottle removed, spring extends and makes contact with 3.3V rail) → HIGH
+    bool springRaw = digitalRead(SPRING_SWITCH_PIN);
+    springExtended = (springRaw == HIGH); // HIGH = switch closed = spring extended = bottle emptied/removed
 
     Serial.printf("[SENSORS] Light=%-3s  Bottle=%-7s  Spring=%s\n",
                   lightDetected  ? "ON"      : "off",

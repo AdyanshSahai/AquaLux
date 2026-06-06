@@ -169,7 +169,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     </div>
 
     <div class="row">
-      <span class="label">Light / photo</span>
+      <span class="label">Light / photo <span style="font-size:0.7rem;color:#555" id="photo-raw">(ADC: --)</span></span>
       <span class="badge off" id="b-light">OFF</span>
     </div>
 
@@ -204,6 +204,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         badge('b-bottle', data.bottlePresent);
         badge('b-spring', data.springExtended);
         badge('b-light',  data.lightDetected);
+        const rawEl = document.getElementById('photo-raw');
+        if (rawEl) rawEl.textContent = '(ADC: ' + (data.photoRaw ?? '--') + ')';
         badge('b-alarm',  data.alarmActive);
 
       } catch (_) {
@@ -253,7 +255,8 @@ void setupWebServer() {
         j += "\"alarmActive\":"        + String(alarmActive      ? "true" : "false") + ",";
         j += "\"lightDetected\":"      + String(lightDetected    ? "true" : "false") + ",";
         j += "\"bottlePresent\":"      + String(bottlePresent    ? "true" : "false") + ",";
-        j += "\"springExtended\":"     + String(springExtended   ? "true" : "false");
+        j += "\"springExtended\":"     + String(springExtended   ? "true" : "false") + ",";
+        j += "\"photoRaw\":"           + String(photoRawValue);
         j += "}";
         request->send(200, "application/json", j);
     });

@@ -48,7 +48,8 @@ extern unsigned long dismissStartMs;     // millis() when all three conditions f
 // ── Sensor readings (updated each loop iteration during alarm) ──
 extern bool bottlePresent;   // IR HIGH  = bottle on platform
 extern bool springExtended;  // Spring HIGH = spring free = bottle emptied
-extern bool lightDetected;   // Button LOW / future ADC above threshold = lights on
+extern bool lightDetected;   // ADC above LIGHT_THRESHOLD = lights on
+extern int  photoRawValue;   // Last raw 12-bit ADC reading from PHOTO_PIN (for calibration)
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute

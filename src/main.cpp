@@ -60,7 +60,9 @@ void setup() {
     digitalWrite(BUZZER_PIN,    LOW);          // Explicitly off; prevents startup beep if pin floats
 
     pinMode(IR_PRESENCE_PIN,    INPUT);        // IR module has on-board pull-up — do NOT add internal
-    pinMode(SPRING_SWITCH_PIN,  INPUT_PULLUP); // Internal pull-up; spring HIGH when free (bottle empty)
+    pinMode(SPRING_SWITCH_PIN,  INPUT_PULLDOWN); // Internal pull-down; switch connects to 3.3V
+                                                // Open (spring compressed, bottle present) → LOW
+                                                // Closed to 3.3V (spring extended, bottle empty) → HIGH
     pinMode(PHOTO_PIN,          INPUT);        // Analog input for photoresistor voltage-divider; no pull-up (divider biases the pin)
     pinMode(RESET_PIN,          INPUT_PULLUP); // Internal pull-up; LOW = button pressed = counting down
 
