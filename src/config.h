@@ -21,8 +21,10 @@
                                     // LOW  = bottle weight compresses spring (bottle present, possibly full)
                                     // HIGH = spring extends when bottle is empty / removed
 
-#define RESET_PIN               33   // ← CHANGE ME — digital input, internal pull-up enabled
+#define RESET_PIN               38   // ← CHANGE ME — digital input, internal pull-up enabled
                                     // Active LOW: hold for RESET_HOLD_MS → factory reset
+                                    // IMPORTANT: GPIO 33-37 are PSRAM interface pins on S2 Mini —
+                                    // do NOT use them as user GPIO or PSRAM will crash
 
 // ── COMMENTED OUT: future photoresistor on analog pin ────────
 #define PHOTO_PIN             7   // Analog GPIO for photoresistor voltage-divider
