@@ -7,7 +7,7 @@
 // ============================================================
 
 // ── Output pins ──────────────────────────────────────────────
-#define BUZZER_PIN             33   // ← CHANGE ME — digital output
+#define BUZZER_PIN             34   // ← CHANGE ME — digital output
                                     // HIGH drives 2N2222 base via series resistor
                                     // → transistor saturates → active buzzer sounds
 
@@ -27,7 +27,7 @@
 // ── TEMPORARY light-detection pin ────────────────────────────
 // TEMPORARY SUBSTITUTION — uncomment and replace with photoresistor on analog pin when available
 // This pushbutton stands in for the photoresistor until the voltage-divider circuit is fitted.
-#define LIGHT_BUTTON_PIN       10   // ← CHANGE ME — digital input, internal pull-up enabled
+#define LIGHT_BUTTON_PIN       6   // ← CHANGE ME — digital input, internal pull-up enabled
                                     // TEMP: pushbutton, active LOW
                                     // Press = signal that "lights are on" (dismissal condition)
 
