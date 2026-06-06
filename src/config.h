@@ -51,7 +51,7 @@
 #define AP_SSID              "AquaLux"      // Broadcast SSID for the device's own AP (no password)
 #define AP_GATEWAY_IP        "192.168.4.1"  // Default ESP32 softAP gateway IP (informational)
 #define NTP_SERVER           "pool.ntp.org" // Global NTP pool; replace with regional pool if preferred
-#define NTP_UTC_OFFSET_SEC    0             // UTC offset in seconds; adjust for your timezone
+#define NTP_UTC_OFFSET_SEC    3600          // UTC offset in seconds; adjust for your timezone
                                             // Examples: IST = 19800, EST = -18000, CET = 3600
 
 // ── Preferences (NVS) keys ────────────────────────────────────
