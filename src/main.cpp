@@ -57,7 +57,7 @@ void setup() {
 
     // ── Pin configuration ─────────────────────────────────────
     pinMode(BUZZER_PIN,      OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);         // Explicitly off; prevents startup beep if pin floats
+    digitalWrite(BUZZER_PIN, HIGH);        // Active-low buzzer: HIGH = off; prevents startup beep
 
     pinMode(CAP_SENSOR_PIN,  INPUT);       // Capacitive sensor module has its own pull resistors
     pinMode(PHOTO_PIN,       INPUT);       // LDR module DO pin; module has its own pull resistors

@@ -13,7 +13,7 @@ void triggerAlarm() {
     lastBuzzerToggle  = millis(); // Reference timestamp for the first toggle interval
     dismissInProgress = false;    // Clear any remnant debounce state from a previous alarm
     dismissStartMs    = 0;
-    digitalWrite(BUZZER_PIN, HIGH); // HIGH → 2N2222 base current → transistor on → buzzer sounds
+    digitalWrite(BUZZER_PIN, LOW);  // Active-low: LOW → transistor on → buzzer sounds
     Serial.println("[ALARM] TRIGGERED — buzzer pulsing started");
 }
 
@@ -28,14 +28,13 @@ void updateBuzzerPulse() {
     if (buzzerOn && elapsed >= BUZZER_ON_MS) {
         // Buzzer has been on for the full ON duration — switch it off
         buzzerOn = false;
-        digitalWrite(BUZZER_PIN, LOW);  // LOW → transistor off → buzzer silent
-        lastBuzzerToggle = now;         // Reset the interval timer for the OFF phase
+        digitalWrite(BUZZER_PIN, HIGH); // Active-low: HIGH → transistor off → silent
+        lastBuzzerToggle = now;
         Serial.println("[ALARM] Buzzer OFF");
 
     } else if (!buzzerOn && elapsed >= BUZZER_OFF_MS) {
-        // Buzzer has been off for the full OFF duration — switch it back on
         buzzerOn = true;
-        digitalWrite(BUZZER_PIN, HIGH); // HIGH → transistor on → buzzer sounds
+        digitalWrite(BUZZER_PIN, LOW);  // Active-low: LOW → transistor on → buzzer sounds
         lastBuzzerToggle = now;         // Reset the interval timer for the ON phase
         Serial.println("[ALARM] Buzzer ON");
     }
@@ -64,7 +63,7 @@ void handleAlarmDismiss() {
             alarmActive       = false;
             dismissInProgress = false;
             buzzerOn          = false;
-            digitalWrite(BUZZER_PIN, LOW); // Silence immediately; don't wait for next pulse edge
+            digitalWrite(BUZZER_PIN, HIGH); // Active-low: HIGH = silent immediately
             Serial.println("[ALARM] DISMISSED — conditions held 2 s. Buzzer silenced.");
         }
         // Debounce timer still running — hold and wait

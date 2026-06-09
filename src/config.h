@@ -11,8 +11,9 @@
                                     // HIGH → transistor saturates → active buzzer sounds
 
 // ── Digital input pins ────────────────────────────────────────
-#define CAP_SENSOR_PIN          5   // Capacitive sensor module digital output
-                                    // HIGH = presence/touch detected
+#define CAP_SENSOR_PIN          5   // ESP32-S2 touch pin T5; read with touchRead()
+                                    // Lower value = more capacitance = touch/presence detected
+#define CAP_THRESHOLD       40000   // Readings below this count as "detected" — tune via Dev mode
 
 #define PHOTO_PIN              21   // Digital-output photoresistor/LDR module (comparator DO pin)
                                     // HIGH = sufficient ambient light detected, LOW = dark

@@ -46,8 +46,9 @@ extern bool          dismissInProgress;  // true = 2 s debounce countdown runnin
 extern unsigned long dismissStartMs;     // millis() when all three conditions first became satisfied
 
 // ── Sensor readings (updated each loop iteration) ─────────────
-extern bool capDetected;    // Capacitive sensor HIGH = presence/touch detected
-extern bool lightDetected;  // Photoresistor module DO HIGH = ambient light present
+extern uint32_t capRawValue;   // Raw touchRead() value — lower = more capacitance = touched
+extern bool     capDetected;   // true when capRawValue < CAP_THRESHOLD
+extern bool     lightDetected; // Photoresistor module DO HIGH = ambient light present
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute

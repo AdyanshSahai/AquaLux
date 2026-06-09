@@ -32,9 +32,9 @@ void handleResetButton() {
             preferences.clear();                       // Delete every key in the aqualux namespace
             preferences.end();                         // Flush to flash and release handle
 
-            digitalWrite(BUZZER_PIN, HIGH);  // Audible confirmation beep: on
-            delay(RESET_BEEP_MS);            // Hold for RESET_BEEP_MS
-            digitalWrite(BUZZER_PIN, LOW);   // Beep off
+            digitalWrite(BUZZER_PIN, LOW);   // Active-low: LOW = buzzer on
+            delay(RESET_BEEP_MS);
+            digitalWrite(BUZZER_PIN, HIGH);  // Active-low: HIGH = buzzer off
 
             Serial.println("[RESET] Rebooting to setup mode");
             delay(100);      // Let the serial buffer flush before the restart

@@ -35,8 +35,9 @@ bool          dismissInProgress = false;
 unsigned long dismissStartMs    = 0;
 
 // ── Sensor readings ───────────────────────────────────────────
-bool capDetected   = false; // Updated by readSensors()
-bool lightDetected = false;
+uint32_t capRawValue  = 0;     // Updated by readSensors()
+bool     capDetected  = false;
+bool     lightDetected = false;
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 bool ntpResynced3am = false;

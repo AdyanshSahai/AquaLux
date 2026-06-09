@@ -391,7 +391,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <div class="card">
         <div class="row">
           <span class="label">Capacitive sensor</span>
-          <span class="badge off" id="b-cap">OFF</span>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:0.85rem;color:#aaa;font-variant-numeric:tabular-nums;" id="cap-raw">--</span>
+            <span class="badge off" id="b-cap">OFF</span>
+          </span>
         </div>
         <div class="row">
           <span class="label">Photoresistor</span>
@@ -531,6 +534,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
         // ── Dev panel ─────────────────────────────────────────
         document.getElementById('cur-time').textContent = d.time || '--:--:--';
+        const capRawEl = document.getElementById('cap-raw');
+        if (capRawEl) capRawEl.textContent = d.capRaw ?? '--';
         badge('b-cap',   d.capDetected);
         badge('b-light', d.lightDetected);
         badge('b-alarm', d.alarmActive);
@@ -564,6 +569,7 @@ void setupWebServer() {
         j += "\"alarmTime\":"     "\"" + alarmTimeStr   + "\",";
         j += "\"buzzerOn\":"          + String(buzzerTestState ? "true" : "false") + ",";
         j += "\"alarmActive\":"       + String(alarmActive     ? "true" : "false") + ",";
+        j += "\"capRaw\":"             + String(capRawValue) + ",";
         j += "\"capDetected\":"       + String(capDetected     ? "true" : "false") + ",";
         j += "\"lightDetected\":"     + String(lightDetected   ? "true" : "false");
         j += "}";
@@ -592,7 +598,7 @@ void setupWebServer() {
         bool on = request->hasParam("on", true) &&
                   request->getParam("on", true)->value() == "1";
         buzzerTestState = on;
-        digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+        digitalWrite(BUZZER_PIN, on ? LOW : HIGH); // Active-low: LOW = on, HIGH = off
         Serial.printf("[DEV] Buzzer manually set %s\n", on ? "ON" : "OFF");
         request->send(200, "text/plain", "OK");
     });
