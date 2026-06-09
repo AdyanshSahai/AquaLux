@@ -37,6 +37,9 @@
 // ── Pull in all subsystems ────────────────────────────────────
 // Each header transitively includes globals.h → all library headers + config.h,
 // so this list is all that is needed here.
+#include "soc/soc.h"           // WRITE_PERI_REG
+#include "soc/rtc_cntl_reg.h"  // RTC_CNTL_BROWN_OUT_REG
+
 #include "wifi_ntp.h"
 #include "sensors.h"
 #include "alarm.h"
@@ -48,6 +51,12 @@
 // ============================================================
 
 void setup() {
+    // ── Brownout detector off ─────────────────────────────────
+    // Battery supply droops under WiFi current spikes, triggering resets
+    // which cause GPIO 40 to float and fire the buzzer briefly. Disabling
+    // the detector prevents those resets; the ESP32 rides out the dips instead.
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
     // ── Serial monitor ────────────────────────────────────────
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0); // ESP32-S2 uses USB CDC — without this, Serial.print blocks/drops
@@ -57,7 +66,7 @@ void setup() {
 
     // ── Pin configuration ─────────────────────────────────────
     pinMode(BUZZER_PIN,      OUTPUT);
-    digitalWrite(BUZZER_PIN, HIGH);        // Active-low buzzer: HIGH = off; prevents startup beep
+    digitalWrite(BUZZER_PIN, LOW);          // Explicitly off on boot
 
     pinMode(CAP_SENSOR_PIN,  INPUT);       // Capacitive sensor module has its own pull resistors
     pinMode(PHOTO_PIN,       INPUT);       // LDR module DO pin; module has its own pull resistors
@@ -80,6 +89,7 @@ void setup() {
         // No credentials — bring up AP first, then open the UDP socket for NTP
         Serial.println("[SETUP] No credentials — entering AP setup mode");
         WiFi.mode(WIFI_AP);
+        WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power to cut peak current draw
         WiFi.softAP(AP_SSID);           // Open AP, no password
         timeClient.begin();              // Safe here — WiFi stack is now initialised
         Serial.printf("[SETUP] AP up: SSID='%s'  IP=%s\n", AP_SSID, AP_GATEWAY_IP);

@@ -598,7 +598,7 @@ void setupWebServer() {
         bool on = request->hasParam("on", true) &&
                   request->getParam("on", true)->value() == "1";
         buzzerTestState = on;
-        digitalWrite(BUZZER_PIN, on ? LOW : HIGH); // Active-low: LOW = on, HIGH = off
+        digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
         Serial.printf("[DEV] Buzzer manually set %s\n", on ? "ON" : "OFF");
         request->send(200, "text/plain", "OK");
     });

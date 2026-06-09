@@ -53,7 +53,8 @@ bool syncNTP() {
     }
     Serial.printf("[NTP] Connecting to '%s' for NTP sync...\n", storedSSID.c_str());
 
-    WiFi.mode(WIFI_AP_STA);  // AP_STA keeps the existing softAP running while STA connects
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power to cut peak current draw
     WiFi.begin(storedSSID.c_str(), storedPassword.c_str()); // Kick off STA association
 
     unsigned long connectStart = millis();
