@@ -45,11 +45,9 @@ extern bool          alarmFiredThisMinute;  // One-shot guard — prevents re-tr
 extern bool          dismissInProgress;  // true = 2 s debounce countdown running
 extern unsigned long dismissStartMs;     // millis() when all three conditions first became satisfied
 
-// ── Sensor readings (updated each loop iteration during alarm) ──
-extern bool bottlePresent;   // IR HIGH  = bottle on platform
-extern bool springExtended;  // Spring HIGH = spring free = bottle emptied
-extern bool lightDetected;   // ADC above LIGHT_THRESHOLD = lights on
-extern int  photoRawValue;   // Last raw 12-bit ADC reading from PHOTO_PIN (for calibration)
+// ── Sensor readings (updated each loop iteration) ─────────────
+extern bool capDetected;    // Capacitive sensor HIGH = presence/touch detected
+extern bool lightDetected;  // Photoresistor module DO HIGH = ambient light present
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute

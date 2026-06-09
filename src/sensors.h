@@ -5,7 +5,7 @@
 
 #include "globals.h"
 
-// Reads all three dismissal inputs (light, IR, spring) and
-// updates bottlePresent, springExtended, lightDetected globals.
+// Reads the capacitive sensor (GPIO CAP_SENSOR_PIN) and digital photoresistor
+// (GPIO PHOTO_PIN) and updates capDetected, lightDetected globals.
 // Call every loop iteration while alarmActive, and once at boot.
 void readSensors();

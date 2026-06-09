@@ -13,7 +13,7 @@ void triggerAlarm();
 // Must be called every loop iteration while alarmActive.
 void updateBuzzerPulse();
 
-// Checks whether all three dismissal conditions have been held
-// simultaneously for DISMISS_DEBOUNCE_MS and silences the alarm if so.
+// Checks whether both dismissal conditions (light + cap sensor) have been
+// held simultaneously for DISMISS_DEBOUNCE_MS and silences the alarm if so.
 // Must be called after readSensors() each loop iteration.
 void handleAlarmDismiss();

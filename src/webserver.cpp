@@ -1,33 +1,26 @@
 // ============================================================
-//  webserver.cpp — Embedded HTML page and HTTP route handlers
+//  webserver.cpp — Embedded HTML UI and HTTP route handlers
 //
 //  Routes:
-//    GET  /        — serve the test-panel UI from PROGMEM
-//    GET  /status  — JSON snapshot of time + all sensor/buzzer states
-//    POST /buzzer  — manually drive BUZZER_PIN for hardware testing
-//    POST /save    — write new WiFi/alarm settings to NVS and reboot
+//    GET  /         — serve the three-mode UI from PROGMEM
+//    GET  /status   — JSON snapshot of time + sensor/buzzer/alarm states
+//    POST /setalarm — update alarm time in NVS + globals (no reboot)
+//    POST /buzzer   — manually drive BUZZER_PIN (dev mode)
+//    POST /save     — write WiFi credentials + current alarm to NVS → reboot
 // ============================================================
 
 #include "webserver.h"
+#include "wifi_ntp.h"   // parseAlarmTime()
 
-// ── buzzerTestState ───────────────────────────────────────────
-// Tracks the manually-set buzzer state from the test UI.
-// File-scoped so only this translation unit touches it.
-// The alarm system (alarm.cpp) overrides the pin directly while alarmActive,
-// but this flag reflects what the test UI last requested.
 static bool buzzerTestState = false;
 
-// ── INDEX_HTML ────────────────────────────────────────────────
-// Test-panel UI stored in program flash (PROGMEM). Dark theme, mobile-first.
-// Shows live sensor states and lets the user toggle the buzzer for hardware testing.
-// Polls /status every 500 ms for responsive feedback.
 static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AquaLux Test</title>
+  <title>AquaLux</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -35,23 +28,108 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       background: #0d0d0d;
       color: #e0e0e0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      padding: 24px 16px 48px;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────── */
+    .topbar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      height: 52px;
+      padding: 0 16px;
+      background: #141414;
+      border-bottom: 1px solid #1f1f1f;
+      z-index: 100;
+    }
+
+    .topbar-title {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Hamburger button ────────────────────────────────────── */
+    .ham-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .ham-btn span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: #ccc;
+      border-radius: 2px;
+      transition: background 0.2s;
+    }
+
+    .ham-btn:hover span { background: #fff; }
+
+    /* ── Dropdown menu ───────────────────────────────────────── */
+    .dropdown {
+      position: absolute;
+      top: 52px;
+      left: 0;
+      width: 180px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 0 0 10px 10px;
+      z-index: 200;
+      overflow: hidden;
+    }
+
+    .dropdown.hidden { display: none; }
+
+    .dropdown a {
+      display: block;
+      padding: 13px 18px;
+      font-size: 0.9rem;
+      color: #ccc;
+      cursor: pointer;
+      border-bottom: 1px solid #222;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+
+    .dropdown a:last-child { border-bottom: none; }
+    .dropdown a:hover { background: #222; color: #fff; }
+    .dropdown a.active { color: #4ade80; }
+
+    /* ── Main content ────────────────────────────────────────── */
+    .content {
+      padding: 28px 16px 48px;
       max-width: 420px;
       margin: 0 auto;
     }
 
-    h1 { font-size: 1.4rem; font-weight: 700; color: #fff; }
-    .sub { font-size: 0.75rem; color: #555; margin-bottom: 24px; margin-top: 2px; }
+    .mode-panel { display: none; }
+    .mode-panel.active { display: block; }
 
-    .time {
-      font-size: 1.8rem;
+    /* ── Section headings ────────────────────────────────────── */
+    .panel-title {
+      font-size: 1.1rem;
       font-weight: 700;
       color: #fff;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.04em;
-      margin-bottom: 20px;
+      margin-bottom: 6px;
     }
 
+    .panel-sub {
+      font-size: 0.75rem;
+      color: #555;
+      margin-bottom: 24px;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────── */
     .card {
       background: #141414;
       border: 1px solid #1f1f1f;
@@ -70,11 +148,92 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     .row:last-child { border-bottom: none; }
 
-    .label {
-      font-size: 0.9rem;
-      color: #ccc;
+    .label { font-size: 0.9rem; color: #ccc; }
+
+    /* ── Form inputs ─────────────────────────────────────────── */
+    .field { margin-bottom: 16px; }
+
+    .field label {
+      display: block;
+      font-size: 0.78rem;
+      color: #888;
+      margin-bottom: 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
+    .field input {
+      width: 100%;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1rem;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+    }
+
+    .field input:focus { border-color: #4ade80; }
+    .field input:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────── */
+    .btn {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-green { background: #166534; color: #4ade80; }
+    .btn-green:hover:not(:disabled) { opacity: 0.85; }
+    .btn-blue  { background: #1e3a5f; color: #60a5fa; }
+    .btn-blue:hover:not(:disabled)  { opacity: 0.85; }
+
+    /* ── Status light (alarm mode) ───────────────────────────── */
+    .status-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 28px;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #166534;
+      box-shadow: 0 0 12px #4ade8044;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .status-dot.alarming {
+      background: #991b1b;
+      box-shadow: 0 0 18px #ef444466;
+      animation: pulse-red 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 12px #ef444444; }
+      50%       { box-shadow: 0 0 28px #ef4444aa; }
+    }
+
+    .status-label {
+      font-size: 0.8rem;
+      color: #666;
+    }
+
+    /* ── Sensor badges ───────────────────────────────────────── */
     .badge {
       font-size: 0.7rem;
       font-weight: 600;
@@ -82,17 +241,27 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       text-transform: uppercase;
       padding: 3px 8px;
       border-radius: 20px;
-      background: #222;
+      background: #1f1f1f;
       color: #555;
-      min-width: 42px;
+      min-width: 40px;
       text-align: center;
       transition: background 0.2s, color 0.2s;
     }
 
     .badge.on  { background: #14532d; color: #4ade80; }
-    .badge.off { background: #1f1f1f; color: #555;    }
+    .badge.off { background: #1f1f1f; color: #555; }
 
-    /* ── Toggle switch (used for the controllable buzzer row) ── */
+    /* ── Time display (dev mode) ─────────────────────────────── */
+    .time-display {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      margin-bottom: 20px;
+    }
+
+    /* ── Toggle switch ───────────────────────────────────────── */
     .toggle {
       position: relative;
       width: 44px;
@@ -133,55 +302,204 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       transform: translateX(20px);
       background: #4ade80;
     }
+
+    /* ── Setup message ───────────────────────────────────────── */
+    .msg {
+      font-size: 0.8rem;
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .msg.ok  { background: #14532d44; color: #4ade80; display: block; }
+    .msg.err { background: #7f1d1d44; color: #f87171; display: block; }
   </style>
 </head>
 <body>
 
-  <h1>AquaLux</h1>
-  <p class="sub">Hardware test panel</p>
-  <div class="time" id="cur-time">--:--:--</div>
+  <!-- ── Top bar ──────────────────────────────────────────── -->
+  <header class="topbar">
+    <button class="ham-btn" id="ham-btn" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <span class="topbar-title">AquaLux</span>
+  </header>
 
-  <!-- Controllable outputs -->
-  <div class="card">
+  <!-- ── Dropdown nav ─────────────────────────────────────── -->
+  <nav class="dropdown hidden" id="dropdown">
+    <a id="nav-alarm" class="active" onclick="setMode('alarm')">Alarm</a>
+    <a id="nav-setup"               onclick="setMode('setup')">Setup</a>
+    <a id="nav-dev"                 onclick="setMode('dev')">Dev</a>
+  </nav>
 
-    <!-- Buzzer: interactive toggle — actually drives BUZZER_PIN via /buzzer -->
-    <div class="row">
-      <span class="label">Buzzer</span>
-      <label class="toggle">
-        <input type="checkbox" id="toggle-buzzer" onchange="setBuzzer(this.checked)">
-        <span class="slider"></span>
-      </label>
-    </div>
+  <!-- ── Content ──────────────────────────────────────────── -->
+  <div class="content">
 
-  </div>
+    <!-- ── ALARM MODE ──────────────────────────────────────── -->
+    <section class="mode-panel active" id="panel-alarm">
+      <p class="panel-title">Alarm</p>
+      <p class="panel-sub">Set your daily hydration reminder</p>
 
-  <!-- Live sensor states (read-only indicators) -->
-  <div class="card">
+      <div class="card">
+        <div class="row" style="flex-direction:column;align-items:flex-start;gap:10px;">
+          <div class="field" style="width:100%;margin-bottom:0;">
+            <label>Alarm Time</label>
+            <input type="time" id="alarm-input" value="07:00">
+          </div>
+          <button class="btn btn-green" id="save-btn" onclick="saveAlarm()">Save</button>
+        </div>
+      </div>
 
-    <div class="row">
-      <span class="label">IR — bottle present</span>
-      <span class="badge off" id="b-bottle">OFF</span>
-    </div>
+      <div class="status-wrap">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-label" id="status-label">Not ringing</span>
+      </div>
+    </section>
 
-    <div class="row">
-      <span class="label">Spring — bottle empty</span>
-      <span class="badge off" id="b-spring">OFF</span>
-    </div>
+    <!-- ── SETUP MODE ──────────────────────────────────────── -->
+    <section class="mode-panel" id="panel-setup">
+      <p class="panel-title">WiFi Setup</p>
+      <p class="panel-sub">Connect to home WiFi for automatic time sync</p>
 
-    <div class="row">
-      <span class="label">Light / photo <span style="font-size:0.7rem;color:#555" id="photo-raw">(ADC: --)</span></span>
-      <span class="badge off" id="b-light">OFF</span>
-    </div>
+      <div class="card">
+        <div class="row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div class="field" style="width:100%;">
+            <label>Network Name (SSID)</label>
+            <input type="text" id="ssid-input" placeholder="Your WiFi name" autocomplete="off">
+          </div>
+          <div class="field" style="width:100%;margin-bottom:0;">
+            <label>Password</label>
+            <input type="password" id="pass-input" placeholder="WiFi password" autocomplete="off">
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn btn-blue" id="connect-btn" onclick="saveWifi()">Connect &amp; Sync</button>
+        </div>
+      </div>
 
-    <div class="row">
-      <span class="label">Alarm active</span>
-      <span class="badge off" id="b-alarm">OFF</span>
-    </div>
+      <p class="msg" id="setup-msg"></p>
+    </section>
 
-  </div>
+    <!-- ── DEV MODE ────────────────────────────────────────── -->
+    <section class="mode-panel" id="panel-dev">
+      <p class="panel-title">Dev</p>
+      <p class="panel-sub">Live sensor readings and buzzer control</p>
+
+      <div class="time-display" id="cur-time">--:--:--</div>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">Capacitive sensor</span>
+          <span class="badge off" id="b-cap">OFF</span>
+        </div>
+        <div class="row">
+          <span class="label">Photoresistor</span>
+          <span class="badge off" id="b-light">OFF</span>
+        </div>
+        <div class="row">
+          <span class="label">Alarm active</span>
+          <span class="badge off" id="b-alarm">OFF</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">Buzzer</span>
+          <label class="toggle">
+            <input type="checkbox" id="toggle-buzzer" onchange="setBuzzer(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- .content -->
 
   <script>
-    // Update a read-only badge element based on a boolean state
+    // ── Mode switching ────────────────────────────────────────
+    function setMode(mode) {
+      document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.dropdown a').forEach(a => a.classList.remove('active'));
+      document.getElementById('panel-' + mode).classList.add('active');
+      document.getElementById('nav-' + mode).classList.add('active');
+      document.getElementById('dropdown').classList.add('hidden');
+    }
+
+    document.getElementById('ham-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      document.getElementById('dropdown').classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', function(e) {
+      const dd = document.getElementById('dropdown');
+      if (!dd.classList.contains('hidden') &&
+          !dd.contains(e.target) &&
+          e.target !== document.getElementById('ham-btn')) {
+        dd.classList.add('hidden');
+      }
+    });
+
+    // ── Alarm save ────────────────────────────────────────────
+    async function saveAlarm() {
+      const val = document.getElementById('alarm-input').value;
+      if (!val) return;
+      const btn = document.getElementById('save-btn');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/setalarm', {
+          method: 'POST',
+          body: new URLSearchParams({ alarm: val })
+        });
+        btn.textContent = r.ok ? 'Saved!' : 'Error';
+        setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+      } catch(_) {
+        btn.textContent = 'Error';
+        setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+      }
+    }
+
+    // ── WiFi save (reboots device) ────────────────────────────
+    async function saveWifi() {
+      const ssid = document.getElementById('ssid-input').value.trim();
+      const pass = document.getElementById('pass-input').value;
+      const msg  = document.getElementById('setup-msg');
+      const btn  = document.getElementById('connect-btn');
+
+      if (!ssid) {
+        msg.className = 'msg err';
+        msg.textContent = 'Please enter a network name.';
+        return;
+      }
+
+      btn.textContent = 'Connecting...';
+      btn.disabled = true;
+      msg.className = 'msg';
+
+      try {
+        await fetch('/save', {
+          method: 'POST',
+          body: new URLSearchParams({ ssid: ssid, pass: pass })
+        });
+        msg.className = 'msg ok';
+        msg.textContent = 'Credentials saved — device is rebooting. Reconnect to AquaLux to continue.';
+      } catch(_) {
+        msg.className = 'msg ok';
+        msg.textContent = 'Device is rebooting. Reconnect to AquaLux to continue.';
+      }
+    }
+
+    // ── Buzzer toggle (dev mode) ──────────────────────────────
+    async function setBuzzer(on) {
+      try {
+        await fetch('/buzzer', {
+          method: 'POST',
+          body: new URLSearchParams({ on: on ? '1' : '0' })
+        });
+      } catch(_) {}
+    }
+
+    // ── Status polling ────────────────────────────────────────
     function badge(id, on) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -189,42 +507,40 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       el.className   = 'badge ' + (on ? 'on' : 'off');
     }
 
-    // Poll /status every 500 ms — faster interval for hardware testing
     async function poll() {
       try {
         const r    = await fetch('/status');
-        const data = await r.json();
+        const d    = await r.json();
+        const ring = !!d.alarmActive;
 
-        document.getElementById('cur-time').textContent = data.time || '--:--:--';
+        // ── Alarm panel ───────────────────────────────────────
+        const dot = document.getElementById('status-dot');
+        dot.className = 'status-dot' + (ring ? ' alarming' : '');
+        document.getElementById('status-label').textContent =
+          ring ? 'Alarm is ringing!' : 'Not ringing';
 
-        // Sync the buzzer toggle to the last known hardware state
-        // (alarm may have overridden it, so reflect the actual pin state)
-        document.getElementById('toggle-buzzer').checked = !!data.buzzerOn;
+        const inp = document.getElementById('alarm-input');
+        const btn = document.getElementById('save-btn');
+        inp.disabled = ring;
+        btn.disabled = ring;
 
-        badge('b-bottle', data.bottlePresent);
-        badge('b-spring', data.springExtended);
-        badge('b-light',  data.lightDetected);
-        const rawEl = document.getElementById('photo-raw');
-        if (rawEl) rawEl.textContent = '(ADC: ' + (data.photoRaw ?? '--') + ')';
-        badge('b-alarm',  data.alarmActive);
+        // Only push server value when user is not actively editing the field
+        if (d.alarmTime && document.activeElement !== inp) {
+          inp.value = d.alarmTime;
+        }
 
-      } catch (_) {
-        // Silently ignore — board may be briefly busy
-      }
-    }
+        // ── Dev panel ─────────────────────────────────────────
+        document.getElementById('cur-time').textContent = d.time || '--:--:--';
+        badge('b-cap',   d.capDetected);
+        badge('b-light', d.lightDetected);
+        badge('b-alarm', d.alarmActive);
+        document.getElementById('toggle-buzzer').checked = !!d.buzzerOn;
 
-    // POST to /buzzer with on=1 or on=0 to drive the pin directly
-    async function setBuzzer(on) {
-      try {
-        await fetch('/buzzer', {
-          method: 'POST',
-          body: new URLSearchParams({ on: on ? '1' : '0' })
-        });
-      } catch (_) {}
+      } catch(_) {}
     }
 
     poll();
-    setInterval(poll, 500); // 500 ms for snappy feedback during testing
+    setInterval(poll, 500);
   </script>
 
 </body>
@@ -232,58 +548,64 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // ── setupWebServer ────────────────────────────────────────────
-// Registers all HTTP route handlers and starts listening on port 80.
-// serverStarted flag prevents double-init if called more than once.
 void setupWebServer() {
-    if (serverStarted) return; // Already running — do nothing
+    if (serverStarted) return;
 
     // ── GET / ─────────────────────────────────────────────────
-    // Serve the test panel from PROGMEM
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send_P(200, "text/html", INDEX_HTML); // send_P streams directly from flash
+        request->send_P(200, "text/html", INDEX_HTML);
     });
 
     // ── GET /status ───────────────────────────────────────────
-    // JSON snapshot of time + all sensor/output states.
-    // Polled every 500 ms by the test panel.
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
         String t = timeClient.isTimeSet() ? timeClient.getFormattedTime() : "--:--:--";
         String j = "{";
-        j += "\"time\":"           "\"" + t                  + "\",";
-        j += "\"alarmTime\":"      "\"" + alarmTimeStr        + "\",";
-        j += "\"buzzerOn\":"           + String(buzzerTestState  ? "true" : "false") + ",";
-        j += "\"alarmActive\":"        + String(alarmActive      ? "true" : "false") + ",";
-        j += "\"lightDetected\":"      + String(lightDetected    ? "true" : "false") + ",";
-        j += "\"bottlePresent\":"      + String(bottlePresent    ? "true" : "false") + ",";
-        j += "\"springExtended\":"     + String(springExtended   ? "true" : "false") + ",";
-        j += "\"photoRaw\":"           + String(photoRawValue);
+        j += "\"time\":"          "\"" + t             + "\",";
+        j += "\"alarmTime\":"     "\"" + alarmTimeStr   + "\",";
+        j += "\"buzzerOn\":"          + String(buzzerTestState ? "true" : "false") + ",";
+        j += "\"alarmActive\":"       + String(alarmActive     ? "true" : "false") + ",";
+        j += "\"capDetected\":"       + String(capDetected     ? "true" : "false") + ",";
+        j += "\"lightDetected\":"     + String(lightDetected   ? "true" : "false");
         j += "}";
         request->send(200, "application/json", j);
     });
 
+    // ── POST /setalarm ────────────────────────────────────────
+    // Updates the alarm time in NVS and globals without rebooting.
+    server.on("/setalarm", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("alarm", true)) {
+            request->send(400, "text/plain", "Missing alarm param");
+            return;
+        }
+        String newAlarm = request->getParam("alarm", true)->value();
+        alarmTimeStr = newAlarm;
+        parseAlarmTime(newAlarm);           // Updates alarmHour / alarmMinute globals
+        preferences.begin(PREF_NAMESPACE, false);
+        preferences.putString(PREF_KEY_ALARM, newAlarm);
+        preferences.end();
+        Serial.printf("[ALARM] Updated to '%s'\n", newAlarm.c_str());
+        request->send(200, "text/plain", "OK");
+    });
+
     // ── POST /buzzer ──────────────────────────────────────────
-    // Manually drive BUZZER_PIN for hardware testing.
-    // Body param: on=1 (buzzer on) or on=0 (buzzer off).
-    // Note: if alarmActive is true, alarm.cpp will override the pin every ~50 ms.
     server.on("/buzzer", HTTP_POST, [](AsyncWebServerRequest *request) {
         bool on = request->hasParam("on", true) &&
-                  request->getParam("on", true)->value() == "1"; // true if on=1
-        buzzerTestState = on;                   // Track the requested state
-        digitalWrite(BUZZER_PIN, on ? HIGH : LOW); // Drive pin directly
-        Serial.printf("[TEST] Buzzer manually set %s\n", on ? "ON" : "OFF");
+                  request->getParam("on", true)->value() == "1";
+        buzzerTestState = on;
+        digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+        Serial.printf("[DEV] Buzzer manually set %s\n", on ? "ON" : "OFF");
         request->send(200, "text/plain", "OK");
     });
 
     // ── POST /save ────────────────────────────────────────────
-    // Write new WiFi credentials and alarm time to NVS, then reboot.
-    // Kept for completeness — not exposed in the test UI but reachable via curl/etc.
+    // Saves WiFi credentials (and optionally alarm time) then reboots.
     server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request) {
-        String newAlarm = request->hasParam("alarm", true)
-                          ? request->getParam("alarm", true)->value() : alarmTimeStr;
         String newSSID  = request->hasParam("ssid",  true)
                           ? request->getParam("ssid",  true)->value() : storedSSID;
         String newPass  = request->hasParam("pass",  true)
                           ? request->getParam("pass",  true)->value() : storedPassword;
+        String newAlarm = request->hasParam("alarm", true)
+                          ? request->getParam("alarm", true)->value() : alarmTimeStr;
 
         preferences.begin(PREF_NAMESPACE, false);
         preferences.putString(PREF_KEY_SSID,  newSSID);
@@ -291,7 +613,7 @@ void setupWebServer() {
         preferences.putString(PREF_KEY_ALARM, newAlarm);
         preferences.end();
 
-        Serial.printf("[SAVE] Stored SSID='%s'  Alarm='%s' — rebooting\n",
+        Serial.printf("[SAVE] SSID='%s'  Alarm='%s' — rebooting\n",
                       newSSID.c_str(), newAlarm.c_str());
         request->send(200, "text/plain", "OK");
         delay(300);

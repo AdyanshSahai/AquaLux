@@ -7,34 +7,20 @@
 // ============================================================
 
 // ── Output pins ──────────────────────────────────────────────
-#define BUZZER_PIN             14   // ← CHANGE ME — digital output
-                                    // HIGH drives 2N2222 base via series resistor
-                                    // → transistor saturates → active buzzer sounds
+#define BUZZER_PIN             40   // Digital output → 2N2222 base via series resistor
+                                    // HIGH → transistor saturates → active buzzer sounds
 
-// ── Permanent digital input pins ─────────────────────────────
-#define IR_PRESENCE_PIN         15  // ← CHANGE ME — digital input, no internal pull-up needed
-                                    // IR obstacle-detection module has its own pull-up resistor
-                                    // HIGH = IR reflection detected = bottle is on the platform
+// ── Digital input pins ────────────────────────────────────────
+#define CAP_SENSOR_PIN          5   // Capacitive sensor module digital output
+                                    // HIGH = presence/touch detected
 
-#define SPRING_SWITCH_PIN       8   // ← CHANGE ME — digital input, internal pull-DOWN enabled
-                                    // CUSTOM SPRING SWITCH (homemade card + 3D-printed spring)
-                                    // Wired: switch between SPRING_SWITCH_PIN and 3.3V
-                                    // LOW  = switch open  = spring compressed = bottle present
-                                    // HIGH = switch closed to 3.3V = spring extended = bottle empty/removed
+#define PHOTO_PIN              21   // Digital-output photoresistor/LDR module (comparator DO pin)
+                                    // HIGH = sufficient ambient light detected, LOW = dark
 
-#define RESET_PIN               38   // ← CHANGE ME — digital input, internal pull-up enabled
+#define RESET_PIN              38   // Digital input, internal pull-up enabled
                                     // Active LOW: hold for RESET_HOLD_MS → factory reset
                                     // IMPORTANT: GPIO 33-37 are PSRAM interface pins on S2 Mini —
                                     // do NOT use them as user GPIO or PSRAM will crash
-
-// ── COMMENTED OUT: future photoresistor on analog pin ────────
-#define PHOTO_PIN             7   // Analog GPIO for photoresistor voltage-divider
-                                  // Wiring: 3.3 V → photoresistor → PHOTO_PIN → 10 kΩ → GND
-                                  // When lit  : photoresistor resistance drops → voltage rises → ADC high
-                                  // When dark : photoresistor resistance high  → voltage falls → ADC low
-#define LIGHT_THRESHOLD    7900   // ESP32-S2 has a 13-bit ADC (0–8191, not 0–4095)
-                                  // Calibrated: lights OFF + curtains open ≈ 7608, lights ON ≈ 8191
-                                  // 7900 sits cleanly between the two — raise if false-triggers on bright days
 
 // ── Timing constants (all in milliseconds unless noted) ──────
 #define BUZZER_ON_MS            500  // Buzzer stays ON for this long each alarm pulse

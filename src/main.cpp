@@ -13,7 +13,7 @@
  *     If no creds     → AP mode immediately (first-time setup)
  *  4. Serve web UI at 192.168.4.1: set alarm, update WiFi, view sensor states
  *  5. At alarm time   → pulse buzzer via 2N2222 (500 ms on / 500 ms off)
- *  6. Alarm dismiss   → light ON + bottle present + spring extended, all held >= 2 s
+ *  6. Alarm dismiss   → light ON + capacitive sensor triggered, both held >= 2 s
  *  7. 3 am daily      → brief home-WiFi reconnect for NTP resync
  *  8. Reset button    → hold 3 s → wipe Preferences → beep → reboot
  *
@@ -56,15 +56,12 @@ void setup() {
     Serial.println("\n===== AquaLux BOOT =====");
 
     // ── Pin configuration ─────────────────────────────────────
-    pinMode(BUZZER_PIN,         OUTPUT);
-    digitalWrite(BUZZER_PIN,    LOW);          // Explicitly off; prevents startup beep if pin floats
+    pinMode(BUZZER_PIN,      OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);         // Explicitly off; prevents startup beep if pin floats
 
-    pinMode(IR_PRESENCE_PIN,    INPUT);        // IR module has on-board pull-up — do NOT add internal
-    pinMode(SPRING_SWITCH_PIN,  INPUT_PULLDOWN); // Internal pull-down; switch connects to 3.3V
-                                                // Open (spring compressed, bottle present) → LOW
-                                                // Closed to 3.3V (spring extended, bottle empty) → HIGH
-    pinMode(PHOTO_PIN,          INPUT);        // Analog input for photoresistor voltage-divider; no pull-up (divider biases the pin)
-    pinMode(RESET_PIN,          INPUT_PULLUP); // Internal pull-up; LOW = button pressed = counting down
+    pinMode(CAP_SENSOR_PIN,  INPUT);       // Capacitive sensor module has its own pull resistors
+    pinMode(PHOTO_PIN,       INPUT);       // LDR module DO pin; module has its own pull resistors
+    pinMode(RESET_PIN,       INPUT_PULLUP); // Internal pull-up; LOW = button pressed = counting down
 
     Serial.println("[SETUP] Pins configured");
 

@@ -48,8 +48,8 @@ void updateBuzzerPulse() {
 // true for DISMISS_DEBOUNCE_MS before the alarm is silenced.
 // Must be called after readSensors() each loop iteration.
 void handleAlarmDismiss() {
-    // Check whether all three dismissal conditions are currently satisfied
-    bool allMet = lightDetected && bottlePresent && springExtended;
+    // Both sensors must be satisfied: light on AND capacitive presence detected
+    bool allMet = lightDetected && capDetected;
 
     if (allMet && !dismissInProgress) {
         // Conditions just became fully satisfied for the first time — start the debounce clock
