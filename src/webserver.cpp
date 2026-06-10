@@ -314,6 +314,36 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     .msg.ok  { background: #14532d44; color: #4ade80; display: block; }
     .msg.err { background: #7f1d1d44; color: #f87171; display: block; }
+
+    /* ── WiFi scan results ───────────────────────────────────── */
+    .scan-list {
+      margin-top: 8px;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .scan-list.visible { display: block; }
+
+    .scan-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 14px;
+      border-bottom: 1px solid #1a1a1a;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .scan-item:last-child { border-bottom: none; }
+    .scan-item:hover { background: #1e1e1e; }
+
+    .scan-item .ssid-name { font-size: 0.9rem; color: #ddd; }
+    .scan-item .rssi {
+      font-size: 0.75rem;
+      color: #555;
+    }
   </style>
 </head>
 <body>
@@ -366,7 +396,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <div class="row" style="flex-direction:column;align-items:flex-start;gap:4px;">
           <div class="field" style="width:100%;">
             <label>Network Name (SSID)</label>
-            <input type="text" id="ssid-input" placeholder="Your WiFi name" autocomplete="off">
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="ssid-input" placeholder="Your WiFi name" autocomplete="off" style="flex:1;">
+              <button class="btn btn-blue" id="scan-btn" onclick="scanWifi()" style="width:auto;padding:11px 14px;white-space:nowrap;">Scan</button>
+            </div>
+            <div class="scan-list" id="scan-list"></div>
           </div>
           <div class="field" style="width:100%;margin-bottom:0;">
             <label>Password</label>
@@ -379,6 +413,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
 
       <p class="msg" id="setup-msg"></p>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row">
+          <span class="label">Current time</span>
+          <span style="font-size:1rem;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;" id="setup-time">--:--:--</span>
+        </div>
+        <div class="row">
+          <button class="btn btn-blue" id="sync-btn" onclick="syncTime()">Sync Time Now</button>
+        </div>
+      </div>
     </section>
 
     <!-- ── DEV MODE ────────────────────────────────────────── -->
@@ -492,6 +536,59 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       }
     }
 
+    // ── NTP sync ──────────────────────────────────────────────
+    async function syncTime() {
+      const btn = document.getElementById('sync-btn');
+      btn.textContent = 'Syncing...';
+      btn.disabled = true;
+      try {
+        const r = await fetch('/synctime', { method: 'POST' });
+        const ok = (await r.text()) === 'OK';
+        btn.textContent = ok ? 'Synced!' : 'Failed';
+      } catch(_) {
+        btn.textContent = 'Failed';
+      }
+      setTimeout(() => { btn.textContent = 'Sync Time Now'; btn.disabled = false; }, 2500);
+    }
+
+    // ── WiFi scan ─────────────────────────────────────────────
+    async function scanWifi() {
+      const btn  = document.getElementById('scan-btn');
+      const list = document.getElementById('scan-list');
+      btn.textContent = 'Scanning...';
+      btn.disabled = true;
+      list.classList.remove('visible');
+      list.innerHTML = '';
+      try {
+        const r       = await fetch('/scan');
+        const networks = await r.json();
+        if (networks.length === 0) {
+          list.innerHTML = '<div class="scan-item"><span class="ssid-name" style="color:#555;">No networks found</span></div>';
+        } else {
+          networks.sort((a, b) => b.rssi - a.rssi);
+          list.innerHTML = networks.map(n => {
+            const bars = n.rssi > -60 ? 'Strong' : n.rssi > -75 ? 'Good' : 'Weak';
+            return `<div class="scan-item" onclick="selectNetwork('${n.ssid.replace(/'/g,"\\'")}')">
+              <span class="ssid-name">${n.ssid}</span>
+              <span class="rssi">${bars} (${n.rssi} dBm)</span>
+            </div>`;
+          }).join('');
+        }
+        list.classList.add('visible');
+      } catch(_) {
+        list.innerHTML = '<div class="scan-item"><span class="ssid-name" style="color:#f87171;">Scan failed</span></div>';
+        list.classList.add('visible');
+      }
+      btn.textContent = 'Scan';
+      btn.disabled = false;
+    }
+
+    function selectNetwork(ssid) {
+      document.getElementById('ssid-input').value = ssid;
+      document.getElementById('scan-list').classList.remove('visible');
+      document.getElementById('pass-input').focus();
+    }
+
     // ── Buzzer toggle (dev mode) ──────────────────────────────
     async function setBuzzer(on) {
       try {
@@ -531,6 +628,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         if (d.alarmTime && document.activeElement !== inp) {
           inp.value = d.alarmTime;
         }
+
+        // ── Setup panel time display ──────────────────────────
+        document.getElementById('setup-time').textContent = d.time || '--:--:--';
 
         // ── Dev panel ─────────────────────────────────────────
         document.getElementById('cur-time').textContent = d.time || '--:--:--';
@@ -573,6 +673,30 @@ void setupWebServer() {
         j += "\"capDetected\":"       + String(capDetected     ? "true" : "false") + ",";
         j += "\"lightDetected\":"     + String(lightDetected   ? "true" : "false");
         j += "}";
+        request->send(200, "application/json", j);
+    });
+
+    // ── POST /synctime ────────────────────────────────────────
+    // Triggers an NTP sync using stored credentials. Returns "OK" or "FAIL".
+    server.on("/synctime", HTTP_POST, [](AsyncWebServerRequest *request) {
+        bool ok = syncNTP();
+        request->send(200, "text/plain", ok ? "OK" : "FAIL");
+    });
+
+    // ── GET /scan ─────────────────────────────────────────────
+    // Synchronous WiFi scan — takes ~2 s. Returns JSON array of {ssid, rssi}.
+    server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
+        int n = WiFi.scanNetworks();
+        String j = "[";
+        for (int i = 0; i < n; i++) {
+            if (i > 0) j += ",";
+            String ssid = WiFi.SSID(i);
+            ssid.replace("\\", "\\\\");
+            ssid.replace("\"", "\\\"");
+            j += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+        }
+        j += "]";
+        WiFi.scanDelete();
         request->send(200, "application/json", j);
     });
 
