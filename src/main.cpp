@@ -37,9 +37,6 @@
 // ── Pull in all subsystems ────────────────────────────────────
 // Each header transitively includes globals.h → all library headers + config.h,
 // so this list is all that is needed here.
-#include "soc/soc.h"           // WRITE_PERI_REG
-#include "soc/rtc_cntl_reg.h"  // RTC_CNTL_BROWN_OUT_REG
-
 #include "wifi_ntp.h"
 #include "sensors.h"
 #include "alarm.h"
@@ -51,12 +48,6 @@
 // ============================================================
 
 void setup() {
-    // ── Brownout detector off ─────────────────────────────────
-    // Battery supply droops under WiFi current spikes, triggering resets
-    // which cause GPIO 40 to float and fire the buzzer briefly. Disabling
-    // the detector prevents those resets; the ESP32 rides out the dips instead.
-    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-
     // ── Serial monitor ────────────────────────────────────────
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0); // ESP32-S2 uses USB CDC — without this, Serial.print blocks/drops
