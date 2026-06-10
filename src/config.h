@@ -12,8 +12,9 @@
 
 // ── Digital input pins ────────────────────────────────────────
 #define CAP_SENSOR_PIN          5   // ESP32-S2 touch pin T5; read with touchRead()
-                                    // Lower value = more capacitance = touch/presence detected
-#define CAP_THRESHOLD       40000   // Readings below this count as "detected" — tune via Dev mode
+#define CAP_BOTTLE_MIN      17000   // Lower bound of water bottle detection range
+#define CAP_BOTTLE_MAX      19000   // Upper bound of water bottle detection range
+                                    // Below 17000 = empty, 17000-19000 = bottle, 45000+ = human (ignored)
 
 #define PHOTO_PIN              21   // Digital-output photoresistor/LDR module (comparator DO pin)
                                     // HIGH = sufficient ambient light detected, LOW = dark
@@ -26,7 +27,7 @@
 // ── Timing constants (all in milliseconds unless noted) ──────
 #define BUZZER_ON_MS            500  // Buzzer stays ON for this long each alarm pulse
 #define BUZZER_OFF_MS           500  // Buzzer stays OFF for this long between pulses
-#define DISMISS_DEBOUNCE_MS    2000  // All three sensors must be satisfied continuously this long to dismiss
+#define DISMISS_DEBOUNCE_MS    5000  // Both conditions must be held simultaneously this long to dismiss
 #define RESET_HOLD_MS          3000  // Hold reset button this many ms to trigger factory reset
 #define RESET_BEEP_MS           200  // Length of confirmation beep after factory reset wipe
 #define LOOP_IDLE_DELAY_MS      100  // Yield delay each loop iteration when alarm is inactive

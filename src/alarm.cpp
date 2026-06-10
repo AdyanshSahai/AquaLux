@@ -33,7 +33,9 @@ void updateBuzzerPulse() {
 }
 
 void handleAlarmDismiss() {
-    bool allMet = lightDetected && capDetected;
+    // Bottle on sensor AND light physically on, both held for DISMISS_DEBOUNCE_MS.
+    // lightDetected is inverted (module outputs LOW when lit), so light on = !lightDetected.
+    bool allMet = capDetected && !lightDetected;
 
     if (allMet && !dismissInProgress) {
         dismissInProgress = true;

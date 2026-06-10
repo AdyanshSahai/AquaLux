@@ -9,7 +9,8 @@ void readSensors() {
     // touchRead returns lower values when something is present (more capacitance).
     // capDetected = true when below CAP_THRESHOLD.
     capRawValue = touchRead(CAP_SENSOR_PIN);
-    capDetected = (capRawValue < CAP_THRESHOLD);
+    // Only true when a water bottle is present — human touch (45000+) is intentionally ignored
+    capDetected = (capRawValue >= CAP_BOTTLE_MIN && capRawValue <= CAP_BOTTLE_MAX);
 
     // ── Photoresistor module (GPIO PHOTO_PIN) ─────────────────
     // Digital-output LDR module (DO pin), INPUT_PULLDOWN on ESP32-S2.
