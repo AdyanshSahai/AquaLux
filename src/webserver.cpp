@@ -12,7 +12,9 @@
 #include "webserver.h"
 #include "wifi_ntp.h"   // parseAlarmTime()
 
-static bool buzzerTestState = false;
+static bool   buzzerTestState = false;
+static int    scanState       = 0;   // 0=idle, 1=scanning, 2=done
+static String scanJson        = "[]";
 
 static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -560,9 +562,15 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       list.classList.remove('visible');
       list.innerHTML = '';
       try {
-        const r       = await fetch('/scan');
-        const networks = await r.json();
-        if (networks.length === 0) {
+        let networks = null;
+        // Poll until the ESP32 returns an array (not {scanning:true})
+        while (true) {
+          const r = await fetch('/scan');
+          const d = await r.json();
+          if (!d.scanning) { networks = d; break; }
+          await new Promise(res => setTimeout(res, 600));
+        }
+        if (!networks || networks.length === 0) {
           list.innerHTML = '<div class="scan-item"><span class="ssid-name" style="color:#555;">No networks found</span></div>';
         } else {
           networks.sort((a, b) => b.rssi - a.rssi);
@@ -684,20 +692,49 @@ void setupWebServer() {
     });
 
     // ── GET /scan ─────────────────────────────────────────────
-    // Synchronous WiFi scan — takes ~2 s. Returns JSON array of {ssid, rssi}.
+    // Async WiFi scan. First call starts the scan (switches to AP_STA so
+    // scanning works) and returns {scanning:true}. Client polls until it
+    // gets a JSON array back. scanState resets to 0 after results are read.
     server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
-        int n = WiFi.scanNetworks();
-        String j = "[";
-        for (int i = 0; i < n; i++) {
-            if (i > 0) j += ",";
-            String ssid = WiFi.SSID(i);
-            ssid.replace("\\", "\\\\");
-            ssid.replace("\"", "\\\"");
-            j += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+        if (scanState == 0) {
+            WiFi.mode(WIFI_AP_STA);      // Scanning requires STA capability
+            WiFi.softAP(AP_SSID);        // Re-assert AP after mode switch
+            WiFi.scanNetworks(true);     // true = async, returns immediately
+            scanState = 1;
+            request->send(200, "application/json", "{\"scanning\":true}");
+
+        } else if (scanState == 1) {
+            int n = WiFi.scanComplete(); // -1 = still running, -2 = failed, >=0 = done
+            if (n == WIFI_SCAN_RUNNING) {
+                request->send(200, "application/json", "{\"scanning\":true}");
+            } else if (n == WIFI_SCAN_FAILED || n == 0) {
+                WiFi.scanDelete();
+                WiFi.mode(WIFI_AP);
+                WiFi.softAP(AP_SSID);
+                scanState = 0;
+                request->send(200, "application/json", "[]");
+            } else {
+                String j = "[";
+                for (int i = 0; i < n; i++) {
+                    if (i > 0) j += ",";
+                    String ssid = WiFi.SSID(i);
+                    ssid.replace("\\", "\\\\");
+                    ssid.replace("\"", "\\\"");
+                    j += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+                }
+                j += "]";
+                WiFi.scanDelete();
+                WiFi.mode(WIFI_AP);
+                WiFi.softAP(AP_SSID);
+                scanJson  = j;
+                scanState = 2;
+                request->send(200, "application/json", j);
+            }
+
+        } else { // scanState == 2 — cached results
+            scanState = 0;
+            request->send(200, "application/json", scanJson);
         }
-        j += "]";
-        WiFi.scanDelete();
-        request->send(200, "application/json", j);
     });
 
     // ── POST /setalarm ────────────────────────────────────────
