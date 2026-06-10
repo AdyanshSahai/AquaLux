@@ -13,7 +13,7 @@
 // ── Digital input pins ────────────────────────────────────────
 #define CAP_SENSOR_PIN          5   // ESP32-S2 touch pin T5; read with touchRead()
 #define CAP_BOTTLE_MIN      17000   // Lower bound of water bottle detection range
-#define CAP_BOTTLE_MAX      19000   // Upper bound of water bottle detection range
+#define CAP_BOTTLE_MAX      21000   // Upper bound of water bottle detection range
                                     // Below 17000 = empty, 17000-19000 = bottle, 45000+ = human (ignored)
 
 #define PHOTO_PIN              21   // Digital-output photoresistor/LDR module (comparator DO pin)
