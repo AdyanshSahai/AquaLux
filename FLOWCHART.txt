@@ -1,0 +1,502 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                          A Q U A L U X   —   SYSTEM FLOWCHART                      ║
+║                       ESP32-S2 Mini · Arduino / FreeRTOS · PlatformIO              ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  Hardware:  LOLIN S2 Mini (ESP32-S2, single-core Xtensa LX7)
+  Purpose:   Hydration alarm — buzzer dismissed only by bottle + light simultaneously
+  Key pins:  GPIO 40 = BUZZER │ GPIO 5 = CAP_SENSOR │ GPIO 21 = PHOTO │ GPIO 38 = RESET
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  FILE MAP  (arrows = "calls / depends on")
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  main.cpp ──────────────────────┬──→ wifi_ntp.cpp  (loadPreferences, syncNTP)
+     │                           ├──→ alarm.cpp      (triggerAlarm, updateBuzzerPulse,
+     │                           │                    handleAlarmDismiss)
+     │                           ├──→ sensors.cpp    (readSensors)
+     │                           ├──→ webserver.cpp  (setupWebServer)
+     │                           └──→ reset_button.cpp (handleResetButton)
+     │
+     ├── globals.h / globals.cpp ← shared state used by ALL files above
+     └── config.h               ← pin numbers & timing constants (no logic)
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  1.  BOOT  —  setup()                                           [main.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  POWER ON
+      │
+      ▼
+  Serial.begin(115200)  +  delay(2000)   ← wait for USB CDC to enumerate
+      │
+      ▼
+  Pin setup
+  ├─ BUZZER_PIN  → OUTPUT, LOW
+  ├─ CAP_PIN     → INPUT
+  ├─ PHOTO_PIN   → INPUT
+  └─ RESET_PIN   → INPUT_PULLUP
+      │
+      ▼
+  ┌──────────────────────────────────────────────┐
+  │  loadPreferences()          [wifi_ntp.cpp]   │   ← NVS namespace "aqualux"
+  │   ├─ Read: wifi_ssid, wifi_pass, alarm_time  │
+  │   ├─ parseAlarmTime("HH:MM")                 │
+  │   │    └─ split → alarmHour, alarmMinute      │
+  │   └─ return hasCreds = (ssid.length() > 0)   │
+  └──────────────────────────────────────────────┘
+      │
+      ├── hasCreds == true ──────────────────────────────────────┐
+      │                                                          ▼
+      │                                           ┌─────────────────────────────────┐
+      │                                           │  syncNTP()    [wifi_ntp.cpp]    │
+      │                                           │   ├─ WiFi.mode(AP_STA)          │
+      │                                           │   ├─ WiFi.begin(ssid, pass)     │
+      │                                           │   ├─ wait ≤ 5 s for CONNECTED   │
+      │                                           │   ├─ timeClient.forceUpdate()   │
+      │                                           │   └─ WiFi.disconnect            │
+      │                                           │       → WiFi.mode(AP)           │
+      │                                           │       → WiFi.softAP("AquaLux") │
+      │                                           └─────────────────────────────────┘
+      │                                                          │
+      └── hasCreds == false ────────────────────────────────────┤
+            WiFi.mode(AP)                                       │
+            WiFi.softAP("AquaLux")                             │
+            timeClient.begin()                                  │
+                                                                ▼
+                                           ┌──────────────────────────────────────────┐
+                                           │  setupWebServer()    [webserver.cpp]     │
+                                           │   Registers 7 async routes:              │
+                                           │   GET  /           → serve UI HTML       │
+                                           │   GET  /status     → JSON poll (500 ms)  │
+                                           │   GET  /scan       → WiFi network scan   │
+                                           │   POST /setalarm   → set + persist alarm │
+                                           │   POST /buzzer     → manual test beep    │
+                                           │   POST /synctime   → trigger NTP now     │
+                                           │   POST /save       → save creds + reboot │
+                                           │   server.begin()                         │
+                                           └──────────────────────────────────────────┘
+                                                                │
+                                                                ▼
+                                                        readSensors()   ← first read
+                                                                │
+                                                                ▼
+                                                         ► ENTER LOOP ◄
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  2.  MAIN LOOP  —  loop()                                       [main.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────────────────────────────┐
+  │  loop()  runs forever                                                           │
+  │                                                                                 │
+  │  ① handleResetButton()  ←─────────────────────────────── [reset_button.cpp] ─┐ │
+  │       [see STATE MACHINE A]                                                   │ │
+  │                                                                               │ │
+  │  ② if timeClient.isTimeSet():                                                 │ │
+  │       curHour   = timeClient.getHours()                                       │ │
+  │       curMinute = timeClient.getMinutes()                                     │ │
+  │                                                                               │ │
+  │       ── 3 AM RESYNC ──────────────────────────────────── [wifi_ntp.cpp] ──  │ │
+  │       if (curHour==3 && curMinute==0 && !ntpResynced3am):                    │ │
+  │           ntpResynced3am = true                                               │ │
+  │           syncNTP()   ← same as boot                                         │ │
+  │       elif NOT 3:00:                                                          │ │
+  │           ntpResynced3am = false  ← reset for tomorrow                       │ │
+  │                                                                               │ │
+  │       ── ALARM TRIGGER ─────────────────────────────────── [alarm.cpp] ────  │ │
+  │       if (curHour==alarmHour && curMinute==alarmMinute):                     │ │
+  │           if (!alarmActive && !alarmFiredThisMinute):                        │ │
+  │               triggerAlarm()      ← [see SUBROUTINE: alarm.cpp]             │ │
+  │               alarmFiredThisMinute = true                                    │ │
+  │       else:                                                                   │ │
+  │           alarmFiredThisMinute = false  ← resets for next day               │ │
+  │                                                                               │ │
+  │  ③ readSensors()   ←──────────────────────────────────── [sensors.cpp] ───  │ │
+  │       [every iteration, alarm or not]                                        │ │
+  │                                                                               │ │
+  │  ④ if alarmActive:                                                            │ │
+  │       updateBuzzerPulse()    ← non-blocking 500ms on/off  [alarm.cpp]       │ │
+  │       handleAlarmDismiss()   ← debounce dismiss logic     [alarm.cpp]       │ │
+  │       [see STATE MACHINES B & C]                                             │ │
+  │                                                                               │ │
+  │  ⑤ delay(alarmActive ? 50ms : 100ms)   ← yield to WiFi stack / watchdog    │ │
+  │                                                                               │ │
+  │  ────────────────────────────────────────────────────────────────────────────│ │
+  │  └──────────────────── REPEAT ◄────────────────────────────────────────────┘ │ │
+  └─────────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  SUBROUTINE — sensors.cpp  (readSensors)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  readSensors()
+      │
+      ├─ capRawValue  = touchRead(GPIO 5)       ← capacitive reading
+      │       capDetected  = (17000 ≤ raw ≤ 21000)
+      │         • < 17000  → empty table / no bottle
+      │         • 17–21 k  → bottle resting on pad   ✓
+      │         • > 21 k   → human finger (ignored)
+      │
+      └─ lightDetected = (digitalRead(GPIO 21) == HIGH)
+              • HIGH → LDR module sees light     ✓
+              • LOW  → dark / covered
+
+  Updates globals:  capRawValue, capDetected, lightDetected
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  SUBROUTINE — alarm.cpp  (triggerAlarm / updateBuzzerPulse / handleAlarmDismiss)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  triggerAlarm()
+      ├─ alarmActive       = true
+      ├─ buzzerOn          = true
+      ├─ lastBuzzerToggle  = millis()
+      ├─ dismissInProgress = false
+      ├─ dismissStartMs    = 0
+      └─ digitalWrite(BUZZER_PIN, HIGH)   ← start beeping
+
+  ─────────────────────────────────────────────
+
+  updateBuzzerPulse()   [called every loop while alarmActive]
+      │
+      ├─ elapsed = millis() - lastBuzzerToggle
+      │
+      ├─ if buzzerOn && elapsed ≥ 500ms:
+      │       buzzerOn = false
+      │       digitalWrite(BUZZER_PIN, LOW)
+      │       lastBuzzerToggle = now
+      │
+      └─ if !buzzerOn && elapsed ≥ 500ms:
+              buzzerOn = true
+              digitalWrite(BUZZER_PIN, HIGH)
+              lastBuzzerToggle = now
+
+  ─────────────────────────────────────────────
+
+  handleAlarmDismiss()  [called every loop while alarmActive]
+      │
+      ├─ allMet = capDetected && lightDetected
+      │            (bottle on pad  AND  light shining)
+      │
+      ├─ allMet && !dismissInProgress:
+      │       dismissInProgress = true
+      │       dismissStartMs    = millis()
+      │       "Starting 5s debounce..."
+      │
+      ├─ allMet && dismissInProgress:
+      │   └─ if (now - dismissStartMs ≥ 5000ms):
+      │           alarmActive       = false       ← ALARM DISMISSED
+      │           dismissInProgress = false
+      │           buzzerOn          = false
+      │           digitalWrite(BUZZER_PIN, LOW)
+      │           "DISMISSED — conditions held 5 s"
+      │
+      └─ !allMet && dismissInProgress:
+              dismissInProgress = false           ← conditions broken, restart
+              dismissStartMs    = 0
+              "Dismiss conditions broken"
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  SUBROUTINE — reset_button.cpp  (handleResetButton)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  handleResetButton()
+      │
+      ├─ pressed = (digitalRead(RESET_PIN) == LOW)   ← active-low
+      │
+      ├─ pressed && !resetHeldTracking:
+      │       resetHeldTracking = true
+      │       resetPressedMs    = millis()
+      │
+      ├─ !pressed && resetHeldTracking:
+      │       resetHeldTracking = false   ← released early, cancel
+      │
+      └─ pressed && resetHeldTracking:
+          └─ if (now - resetPressedMs ≥ 3000ms):
+                  preferences.begin("aqualux")
+                  preferences.clear()
+                  preferences.end()
+                  digitalWrite(BUZZER_PIN, HIGH)   ← beep confirm
+                  delay(RESET_BEEP_MS)
+                  digitalWrite(BUZZER_PIN, LOW)
+                  ESP.restart()                    ← FACTORY RESET
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  SUBROUTINE — wifi_ntp.cpp  (syncNTP)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  syncNTP()
+      │
+      ├─ WiFi.mode(WIFI_AP_STA)          ← AP + station simultaneously
+      ├─ WiFi.begin(storedSSID, storedPassword)
+      │
+      ├─ poll loop (≤ 5 seconds):
+      │   ├─ WiFi.status() == WL_CONNECTED ?  ── YES ──┐
+      │   └─ else wait 500ms, retry              ◄──────┤
+      │                                                 │
+      │   (timeout → skip NTP, restore AP)             ▼
+      │                                   timeClient.begin()
+      │                                   timeClient.forceUpdate()   ← blocking UDP
+      │                                   verify isTimeSet()
+      │
+      └─ WiFi.disconnect(true)
+         WiFi.mode(WIFI_AP)
+         WiFi.softAP("AquaLux")          ← always restore AP after attempt
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  SUBROUTINE — webserver.cpp  (setupWebServer + route handlers)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  Async web server runs in its own FreeRTOS task context (ESPAsyncWebServer).
+  All handlers execute between loop() iterations — no blocking allowed.
+
+  GET /
+  └─ serve INDEX_HTML (PROGMEM, ~3000 lines HTML/CSS/JS)
+     UI polls /status every 500ms, shows Alarm / Setup / Dev tabs
+
+  ─────────────────────────────────────────────────────────
+
+  GET /status
+  └─ return JSON:
+       { time, alarmTime, buzzerOn, alarmActive,
+         capRaw, capDetected, lightDetected }
+
+  ─────────────────────────────────────────────────────────
+
+  GET /scan    [WiFi scan state machine]
+
+      scanState=0 (IDLE)
+           │
+           ▼ first request
+      WiFi.scanNetworks(async=true)
+      scanState=1 → return {"scanning": true}
+           │
+           ▼ next request(s) while scanning
+      WiFi.scanComplete() < 0  → return {"scanning": true}
+           │
+           ▼ scan finishes
+      WiFi.scanComplete() ≥ 0
+      build JSON array [{ssid, rssi}, ...]
+      scanState=0  (reset)
+      return results
+
+  ─────────────────────────────────────────────────────────
+
+  POST /setalarm  (param: alarm="HH:MM")
+  ├─ alarmTimeStr = param
+  ├─ parseAlarmTime() → alarmHour, alarmMinute
+  ├─ preferences.putString(PREF_KEY_ALARM, alarmTimeStr)
+  └─ return "OK"
+
+  ─────────────────────────────────────────────────────────
+
+  POST /buzzer  (param: on=0|1)   [Dev mode only]
+  └─ digitalWrite(BUZZER_PIN, on ? HIGH : LOW)
+
+  ─────────────────────────────────────────────────────────
+
+  POST /synctime
+  ├─ syncNTP()
+  └─ return "OK" or "FAIL"
+
+  ─────────────────────────────────────────────────────────
+
+  POST /save  (params: ssid, pass, alarm)
+  ├─ preferences.begin()
+  ├─ putString(PREF_KEY_SSID,  ssid)
+  ├─ putString(PREF_KEY_PASS,  pass)
+  ├─ putString(PREF_KEY_ALARM, alarm)
+  ├─ preferences.end()
+  └─ ESP.restart()   ← reboot with new credentials
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  STATE MACHINE A — Reset Button                                [reset_button.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+    ┌──────────────────────────────────────────────────────────────┐
+    │                                                              │
+    ▼                                                              │ released early
+  [IDLE]  ──── button pressed (LOW) ───►  [COUNTING]  ───────────┘
+                                               │
+                                               │ held ≥ 3 seconds
+                                               ▼
+                                        [RESET TRIGGERED]
+                                          clear NVS
+                                          beep buzzer
+                                          ESP.restart()
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  STATE MACHINE B — Alarm Lifecycle                                  [alarm.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │                                                                            │
+    ▼                                                                            │ next day
+  [IDLE]                                                                         │
+    │                                                                            │
+    │ clock == alarmTime                                                         │
+    │ && !alarmActive                                                            │
+    │ && !alarmFiredThisMinute                                                   │
+    ▼                                                                            │
+  [TRIGGERED / RINGING]  ──── dismiss conditions held 5 s ───►  [DISMISSED] ───┘
+    │   alarmActive=true                                            alarmActive=false
+    │   buzzer pulsing                                              buzzer off
+    │
+    │ note: alarmFiredThisMinute=true prevents re-trigger
+    │       if alarm dismissed while still in the same minute.
+    │       Resets to false when clock moves past alarm minute.
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  STATE MACHINE C — Buzzer Pulse (while TRIGGERED)                   [alarm.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+    [ON 500ms] ──── elapsed ≥ 500ms ────► [OFF 500ms] ──── elapsed ≥ 500ms ────┐
+        ▲                                                                        │
+        └────────────────────────────────────────────────────────────────────────┘
+                              (non-blocking, millis()-based)
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  STATE MACHINE D — Dismiss Debounce (while TRIGGERED)               [alarm.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+    capDetected && lightDetected?
+
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │                                                                          │
+    ▼ NO                                                                       │ conditions broken
+  [WAITING]  ──── both conditions met ────►  [COUNTING 5s]  ─────────────────┘
+                                                   │
+                                                   │ held continuously for 5 seconds
+                                                   ▼
+                                             [ALARM DISMISSED]
+                                              alarmActive = false
+                                              buzzer off
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  STATE MACHINE E — WiFi Scan                                     [webserver.cpp]
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  GET /scan request arrives
+        │
+        ▼
+  scanState==0 (IDLE)?
+  ├─ YES: WiFi.scanNetworks(async)  →  scanState=1
+  │        return {"scanning": true}
+  └─ NO (scanState==1, still running):
+           WiFi.scanComplete() < 0?
+           ├─ YES: return {"scanning": true}   ← still running
+           └─ NO:  collect results
+                   scanState = 0               ← reset
+                   return [{ssid, rssi}, ...]
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  NVS STORAGE SCHEMA
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  Namespace: "aqualux"
+  ┌─────────────────┬──────────────┬───────────────┐
+  │  Key            │  Type        │  Default       │
+  ├─────────────────┼──────────────┼───────────────┤
+  │  wifi_ssid      │  String      │  ""            │
+  │  wifi_pass      │  String      │  ""            │
+  │  alarm_time     │  String      │  "07:00"       │
+  └─────────────────┴──────────────┴───────────────┘
+  Cleared by 3-second reset button hold.
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  GLOBAL STATE  (globals.h / globals.cpp)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  — Configuration (loaded from NVS at boot) ———————————————————————
+  storedSSID         String    Home WiFi SSID
+  storedPassword     String    Home WiFi password
+  alarmTimeStr       String    "HH:MM"
+  alarmHour          int       parsed hour
+  alarmMinute        int       parsed minute
+
+  — Alarm runtime ——————————————————————————————————————————————————
+  alarmActive        bool      currently ringing
+  buzzerOn           bool      current GPIO state
+  lastBuzzerToggle   uint32    millis() of last buzzer toggle
+  alarmFiredThisMinute bool    prevents double-trigger within same minute
+
+  — Dismiss debounce ———————————————————————————————————————————————
+  dismissInProgress  bool      counting toward 5s hold
+  dismissStartMs     uint32    when countdown started
+
+  — Sensor state (refreshed every loop) ————————————————————————————
+  capRawValue        uint32    raw touchRead value
+  capDetected        bool      true if 17000 ≤ raw ≤ 21000
+  lightDetected      bool      true if PHOTO_PIN == HIGH
+
+  — NTP / misc ——————————————————————————————————————————————————————
+  ntpResynced3am     bool      one-shot flag for daily 3am resync
+  resetPressedMs     uint32    millis() when reset button first pressed
+  resetHeldTracking  bool      reset countdown in progress
+  serverStarted      bool      guard against double server.begin()
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  THREAD / TASK OVERVIEW  (FreeRTOS, single-core ESP32-S2)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  Main Task (loop)       Alarm logic, sensors, reset, NTP trigger        │
+  │  WiFi Task              Managed by ESP-IDF WiFi stack (background)      │
+  │  Async Web Task         ESPAsyncWebServer — handles HTTP in own context │
+  │  FreeRTOS Watchdog      Fed by delay() / yield() calls in loop          │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  No threads are spawned explicitly — all tasks are framework-managed.
+  delay() in loop() yields CPU to WiFi + web server tasks automatically.
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  APPROXIMATE BOOT TIMELINE
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  t=0 s    Power on / reset
+  t=2 s    Serial USB CDC ready
+  t=2.1s   Pins configured, NVS read
+  t=2.2s   ─── if no credentials ────────────────────────────────────────────┐
+           │   WiFi AP up, web server up                                      │
+           │   Ready in ~2.5 seconds                                          │
+           └──────────────────────────────────────────────────────────────────┘
+           ─── if credentials stored ────────────────────────────────────────┐
+           │   WiFi.begin → wait up to 5s for connection                     │
+  t=7 s    │   NTP forceUpdate (~1-3s)                                       │
+  t=8 s    │   Disconnect, restore AP, web server up                        │
+  t=8.5s   │   Ready                                                         │
+           └──────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════════════
+  FILE SUMMARY
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  main.cpp          Entry point. setup() + loop(). Orchestrates all modules.
+  config.h          Constants only — pins, timing, NVS keys. No logic.
+  globals.h/.cpp    All shared mutable state. One definition, many externs.
+  wifi_ntp.h/.cpp   loadPreferences(), parseAlarmTime(), syncNTP().
+  sensors.h/.cpp    readSensors() — cap touch + light, updates globals.
+  alarm.h/.cpp      triggerAlarm(), updateBuzzerPulse(), handleAlarmDismiss().
+  webserver.h/.cpp  setupWebServer() + 7 HTTP routes + embedded UI HTML/CSS/JS.
+  reset_button.h    handleResetButton() — factory reset on 3s hold.
+  reset_button.cpp
+
