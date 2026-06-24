@@ -27,7 +27,7 @@
 // ── Timing constants (all in milliseconds unless noted) ──────
 #define BUZZER_ON_MS            500  // Buzzer stays ON for this long each alarm pulse
 #define BUZZER_OFF_MS           500  // Buzzer stays OFF for this long between pulses
-#define DISMISS_DEBOUNCE_MS    5000  // Both conditions must be held simultaneously this long to dismiss
+#define DISMISS_DEBOUNCE_MS    2000  // Both conditions must be held simultaneously this long to dismiss
 #define RESET_HOLD_MS          3000  // Hold reset button this many ms to trigger factory reset
 #define RESET_BEEP_MS           200  // Length of confirmation beep after factory reset wipe
 #define LOOP_IDLE_DELAY_MS      100  // Yield delay each loop iteration when alarm is inactive
