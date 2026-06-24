@@ -518,12 +518,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
       <div class="card" style="margin-top:14px;">
         <div class="row" style="flex-direction:column;align-items:flex-start;gap:12px;">
-          <span class="label" style="font-weight:600;color:#fff;">WiFi Connect Timeout</span>
-          <div style="display:flex;gap:8px;width:100%;align-items:center;">
-            <input type="number" id="timeout-input" min="5" max="60" placeholder="15" style="flex:1;">
-            <span style="font-size:0.85rem;color:#666;white-space:nowrap;">seconds</span>
-          </div>
-          <button class="btn btn-green" id="timeout-save-btn" onclick="saveTimeout()">Save Timeout</button>
+          <span class="label" style="font-weight:600;color:#fff;">Set Time Manually</span>
+          <input type="time" id="manual-time" step="1" style="width:100%;background:#141414;border:1px solid #2a2a2a;border-radius:10px;color:#fff;font-size:1rem;padding:11px 14px;outline:none;">
+          <button class="btn btn-green" id="manual-time-btn" onclick="setManualTime()">Set Time</button>
         </div>
       </div>
 
@@ -783,26 +780,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         const tMax = document.getElementById('thresh-max');
         if (tMin && document.activeElement !== tMin && d.capMin) tMin.value = d.capMin;
         if (tMax && document.activeElement !== tMax && d.capMax) tMax.value = d.capMax;
-        const tOut = document.getElementById('timeout-input');
-        if (tOut && document.activeElement !== tOut && d.ntpTimeoutSec) tOut.value = d.ntpTimeoutSec;
 
       } catch(_) {}
     }
 
-    // ── WiFi timeout save ─────────────────────────────────────
-    async function saveTimeout() {
-      const val = parseInt(document.getElementById('timeout-input').value);
-      const btn = document.getElementById('timeout-save-btn');
-      if (!val || val < 5) return;
+    // ── Manual time set ───────────────────────────────────────
+    async function setManualTime() {
+      const val = document.getElementById('manual-time').value; // "HH:MM" or "HH:MM:SS"
+      if (!val) return;
+      const parts = val.split(':').map(Number);
+      const h = parts[0] || 0, m = parts[1] || 0, s = parts[2] || 0;
+      const btn = document.getElementById('manual-time-btn');
       btn.disabled = true;
       try {
-        const r = await fetch('/settimeout', {
+        const r = await fetch('/settime', {
           method: 'POST',
-          body: new URLSearchParams({ seconds: val })
+          body: new URLSearchParams({ h, m, s })
         });
-        btn.textContent = r.ok ? 'Saved!' : 'Error';
+        btn.textContent = r.ok ? 'Set!' : 'Error';
       } catch(_) { btn.textContent = 'Error'; }
-      setTimeout(() => { btn.textContent = 'Save Timeout'; btn.disabled = false; }, 2000);
+      setTimeout(() => { btn.textContent = 'Set Time'; btn.disabled = false; }, 2000);
     }
 
     // ── Manual threshold save ─────────────────────────────────
@@ -976,6 +973,23 @@ void setupWebServer() {
         j += "\"max\":"     + String(capBottleMax);
         j += "}";
         request->send(200, "application/json", j);
+    });
+
+    // ── POST /settime ─────────────────────────────────────────
+    // Manually sets the clock to HH:MM:SS without NTP.
+    // Epoch is computed as one day + local seconds - UTC offset so getHours()/getMinutes() return correctly.
+    server.on("/settime", HTTP_POST, [](AsyncWebServerRequest *request) {
+        int h = request->hasParam("h", true) ? request->getParam("h", true)->value().toInt() : 0;
+        int m = request->hasParam("m", true) ? request->getParam("m", true)->value().toInt() : 0;
+        int s = request->hasParam("s", true) ? request->getParam("s", true)->value().toInt() : 0;
+        h = constrain(h, 0, 23);
+        m = constrain(m, 0, 59);
+        s = constrain(s, 0, 59);
+        unsigned long epoch = 86400UL + (unsigned long)(h * 3600 + m * 60 + s)
+                              - (unsigned long)NTP_UTC_OFFSET_SEC;
+        timeClient.setEpochTime(epoch);
+        Serial.printf("[TIME] Manual time set to %02d:%02d:%02d\n", h, m, s);
+        request->send(200, "text/plain", "OK");
     });
 
     // ── POST /settimeout ──────────────────────────────────────
