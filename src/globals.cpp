@@ -39,6 +39,10 @@ uint32_t capRawValue  = 0;     // Updated by readSensors()
 bool     capDetected  = false;
 bool     lightDetected = false;
 
+// ── Capacitive thresholds (overwritten by loadPreferences if calibrated) ─
+uint32_t capBottleMin = CAP_BOTTLE_MIN;
+uint32_t capBottleMax = CAP_BOTTLE_MAX;
+
 // ── Daily NTP resync tracking ─────────────────────────────────
 bool ntpResynced3am = false;
 

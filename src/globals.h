@@ -47,8 +47,12 @@ extern unsigned long dismissStartMs;     // millis() when all three conditions f
 
 // ── Sensor readings (updated each loop iteration) ─────────────
 extern uint32_t capRawValue;   // Raw touchRead() value — lower = more capacitance = touched
-extern bool     capDetected;   // true when capRawValue < CAP_THRESHOLD
+extern bool     capDetected;   // true when capRawValue is within [capBottleMin, capBottleMax]
 extern bool     lightDetected; // Photoresistor module DO HIGH = ambient light present
+
+// ── Capacitive threshold (runtime, loaded from NVS or default) ─
+extern uint32_t capBottleMin;  // Lower bound for bottle detection (default CAP_BOTTLE_MIN)
+extern uint32_t capBottleMax;  // Upper bound for bottle detection (default CAP_BOTTLE_MAX)
 
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute

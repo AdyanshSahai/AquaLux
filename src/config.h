@@ -48,7 +48,19 @@
 
 // ── Preferences (NVS) keys ────────────────────────────────────
 #define PREF_NAMESPACE       "aqualux"    // NVS namespace that groups all AquaLux keys
-#define PREF_KEY_SSID        "wifi_ssid"  // Stored home WiFi SSID
-#define PREF_KEY_PASS        "wifi_pass"  // Stored home WiFi password
+#define PREF_KEY_SSID        "wifi_ssid"  // Active home WiFi SSID
+#define PREF_KEY_PASS        "wifi_pass"  // Active home WiFi password
 #define PREF_KEY_ALARM       "alarm_time" // Stored alarm time as "HH:MM" string
 #define PREF_ALARM_DEFAULT   "07:00"      // Fallback alarm time if nothing is stored yet
+
+// ── Saved network list (up to MAX_SAVED_NETWORKS entries) ─────
+#define MAX_SAVED_NETWORKS   5
+#define PREF_KEY_NET_COUNT   "net_count"  // int: number of saved networks
+// Per-network keys are "net_ssid_N" and "net_pass_N" (N = 0..4)
+
+// ── Cap sensor calibration (persisted thresholds) ─────────────
+#define PREF_KEY_CAL_NOTHING "cal_nothing" // uint32: raw reading with nothing on pad
+#define PREF_KEY_CAL_BOTTLE  "cal_bottle"  // uint32: raw reading with bottle on pad
+#define PREF_KEY_CAL_HAND    "cal_hand"    // uint32: raw reading with hand on pad
+#define PREF_KEY_CAP_MIN     "cap_min"     // uint32: computed lower threshold
+#define PREF_KEY_CAP_MAX     "cap_max"     // uint32: computed upper threshold

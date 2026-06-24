@@ -27,9 +27,13 @@ bool loadPreferences() {
     preferences.begin(PREF_NAMESPACE, false); // Read-write so namespace is created on first boot;
                                               // read-only (true) fails with NOT_FOUND on a fresh device
 
-    storedSSID     = preferences.getString(PREF_KEY_SSID,  "");                // "" if key doesn't exist
+    storedSSID     = preferences.getString(PREF_KEY_SSID,  "");
     storedPassword = preferences.getString(PREF_KEY_PASS,  "");
-    alarmTimeStr   = preferences.getString(PREF_KEY_ALARM, PREF_ALARM_DEFAULT); // Default if never set
+    alarmTimeStr   = preferences.getString(PREF_KEY_ALARM, PREF_ALARM_DEFAULT);
+
+    // Load calibrated cap thresholds if they exist, else keep compile-time defaults
+    capBottleMin = preferences.getUInt(PREF_KEY_CAP_MIN, CAP_BOTTLE_MIN);
+    capBottleMax = preferences.getUInt(PREF_KEY_CAP_MAX, CAP_BOTTLE_MAX);
 
     preferences.end(); // Release the NVS handle; always pair begin/end to avoid handle leaks
 

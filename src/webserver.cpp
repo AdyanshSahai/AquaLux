@@ -12,9 +12,12 @@
 #include "webserver.h"
 #include "wifi_ntp.h"   // parseAlarmTime()
 
-static bool   buzzerTestState = false;
-static int    scanState       = 0;   // 0=idle, 1=scanning, 2=done
-static String scanJson        = "[]";
+static bool     buzzerTestState = false;
+static int      scanState       = 0;   // 0=idle, 1=scanning, 2=done
+static String   scanJson        = "[]";
+static uint32_t calNothing      = 0;   // raw cap reading with nothing on pad
+static uint32_t calBottle       = 0;   // raw cap reading with bottle on pad
+static uint32_t calHand         = 0;   // raw cap reading with hand on pad
 
 static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -346,6 +349,32 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       font-size: 0.75rem;
       color: #555;
     }
+
+    /* ── Saved network select ────────────────────────────────── */
+    .net-select {
+      width: 100%;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1rem;
+      padding: 11px 14px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+    .net-select:focus { border-color: #4ade80; }
+    .net-select option { background: #1a1a1a; }
+
+    /* ── Calibration value display ───────────────────────────── */
+    .cal-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: #666;
+    }
+    .cal-row span { color: #aaa; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -360,9 +389,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
   <!-- ── Dropdown nav ─────────────────────────────────────── -->
   <nav class="dropdown hidden" id="dropdown">
-    <a id="nav-alarm" class="active" onclick="setMode('alarm')">Alarm</a>
-    <a id="nav-setup"               onclick="setMode('setup')">Setup</a>
-    <a id="nav-dev"                 onclick="setMode('dev')">Dev</a>
+    <a id="nav-alarm"  class="active" onclick="setMode('alarm')">Alarm</a>
+    <a id="nav-setup"                 onclick="setMode('setup')">Setup</a>
+    <a id="nav-dev"                   onclick="setMode('dev')">Dev</a>
+    <a id="nav-config"                onclick="setMode('config')">Config</a>
   </nav>
 
   <!-- ── Content ──────────────────────────────────────────── -->
@@ -397,16 +427,18 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <div class="card">
         <div class="row" style="flex-direction:column;align-items:flex-start;gap:4px;">
           <div class="field" style="width:100%;">
+            <label>Saved Networks</label>
+            <select class="net-select" id="net-select" onchange="onNetSelect()">
+              <option value="">-- New network --</option>
+            </select>
+          </div>
+          <div class="field" style="width:100%;">
             <label>Network Name (SSID)</label>
-            <div style="display:flex;gap:8px;">
-              <input type="text" id="ssid-input" placeholder="Your WiFi name" autocomplete="off" style="flex:1;">
-              <button class="btn btn-blue" id="scan-btn" onclick="scanWifi()" style="width:auto;padding:11px 14px;white-space:nowrap;">Scan</button>
-            </div>
-            <div class="scan-list" id="scan-list"></div>
+            <input type="text" id="ssid-input" placeholder="Your WiFi name" autocomplete="off">
           </div>
           <div class="field" style="width:100%;margin-bottom:0;">
             <label>Password</label>
-            <input type="password" id="pass-input" placeholder="WiFi password" autocomplete="off">
+            <input type="text" id="pass-input" placeholder="WiFi password" autocomplete="off">
           </div>
         </div>
         <div class="row">
@@ -459,6 +491,56 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
             <input type="checkbox" id="toggle-buzzer" onchange="setBuzzer(this.checked)">
             <span class="slider"></span>
           </label>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ── CONFIG MODE ───────────────────────────────────────── -->
+    <section class="mode-panel" id="panel-config">
+      <p class="panel-title">Config</p>
+      <p class="panel-sub">Device status and threshold settings</p>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">Stored SSID</span>
+          <span style="font-size:0.85rem;color:#aaa;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="cfg-ssid">--</span>
+        </div>
+        <div class="row">
+          <span class="label">NTP synced</span>
+          <span class="badge off" id="cfg-ntp">NO</span>
+        </div>
+        <div class="row">
+          <span class="label">Current time</span>
+          <span style="font-size:0.85rem;color:#fff;font-variant-numeric:tabular-nums;" id="cfg-time">--:--:--</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row" style="flex-direction:column;align-items:flex-start;gap:12px;">
+          <span class="label" style="font-weight:600;color:#fff;">Cap Thresholds</span>
+          <div class="field" style="width:100%;margin-bottom:0;">
+            <label>Min (bottle lower bound)</label>
+            <input type="number" id="thresh-min" placeholder="e.g. 17000">
+          </div>
+          <div class="field" style="width:100%;margin-bottom:0;">
+            <label>Max (bottle upper bound)</label>
+            <input type="number" id="thresh-max" placeholder="e.g. 21000">
+          </div>
+          <button class="btn btn-green" id="thresh-save-btn" onclick="saveThresholds()">Save Thresholds</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row" style="flex-direction:column;align-items:flex-start;gap:12px;">
+          <span class="label" style="font-weight:600;color:#fff;">Auto-Calibrate</span>
+          <p style="font-size:0.75rem;color:#555;margin-top:-4px;">Place each item on the pad, then tap its button.</p>
+          <div style="display:flex;gap:8px;width:100%;">
+            <button class="btn btn-blue"  id="cal-nothing-btn" onclick="calibrate('nothing')" style="flex:1;font-size:0.8rem;padding:10px 4px;">Nothing</button>
+            <button class="btn btn-green" id="cal-bottle-btn"  onclick="calibrate('bottle')"  style="flex:1;font-size:0.8rem;padding:10px 4px;">Bottle</button>
+            <button class="btn btn-blue"  id="cal-hand-btn"    onclick="calibrate('hand')"    style="flex:1;font-size:0.8rem;padding:10px 4px;">Hand</button>
+          </div>
+          <div id="cal-status" style="width:100%;"></div>
         </div>
       </div>
     </section>
@@ -553,48 +635,74 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       setTimeout(() => { btn.textContent = 'Sync Time Now'; btn.disabled = false; }, 2500);
     }
 
-    // ── WiFi scan ─────────────────────────────────────────────
-    async function scanWifi() {
-      const btn  = document.getElementById('scan-btn');
-      const list = document.getElementById('scan-list');
-      btn.textContent = 'Scanning...';
-      btn.disabled = true;
-      list.classList.remove('visible');
-      list.innerHTML = '';
+    // ── Saved networks dropdown ───────────────────────────────
+    let savedNetworks = [];
+
+    async function loadNetworks() {
       try {
-        let networks = null;
-        // Poll until the ESP32 returns an array (not {scanning:true})
-        while (true) {
-          const r = await fetch('/scan');
-          const d = await r.json();
-          if (!d.scanning) { networks = d; break; }
-          await new Promise(res => setTimeout(res, 600));
-        }
-        if (!networks || networks.length === 0) {
-          list.innerHTML = '<div class="scan-item"><span class="ssid-name" style="color:#555;">No networks found</span></div>';
-        } else {
-          networks.sort((a, b) => b.rssi - a.rssi);
-          list.innerHTML = networks.map(n => {
-            const bars = n.rssi > -60 ? 'Strong' : n.rssi > -75 ? 'Good' : 'Weak';
-            return `<div class="scan-item" onclick="selectNetwork('${n.ssid.replace(/'/g,"\\'")}')">
-              <span class="ssid-name">${n.ssid}</span>
-              <span class="rssi">${bars} (${n.rssi} dBm)</span>
-            </div>`;
-          }).join('');
-        }
-        list.classList.add('visible');
-      } catch(_) {
-        list.innerHTML = '<div class="scan-item"><span class="ssid-name" style="color:#f87171;">Scan failed</span></div>';
-        list.classList.add('visible');
-      }
-      btn.textContent = 'Scan';
-      btn.disabled = false;
+        const r = await fetch('/networks');
+        savedNetworks = await r.json();
+        const sel = document.getElementById('net-select');
+        sel.innerHTML = '<option value="">-- New network --</option>';
+        savedNetworks.forEach((n, i) => {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = n.ssid;
+          sel.appendChild(opt);
+        });
+      } catch(_) {}
     }
 
-    function selectNetwork(ssid) {
-      document.getElementById('ssid-input').value = ssid;
-      document.getElementById('scan-list').classList.remove('visible');
-      document.getElementById('pass-input').focus();
+    function onNetSelect() {
+      const sel = document.getElementById('net-select');
+      const ssidInput = document.getElementById('ssid-input');
+      const passInput = document.getElementById('pass-input');
+      if (sel.value === '') {
+        ssidInput.value = '';
+        passInput.value = '';
+        ssidInput.disabled = false;
+      } else {
+        const net = savedNetworks[parseInt(sel.value)];
+        ssidInput.value = net.ssid;
+        passInput.value = net.pass;
+        ssidInput.disabled = true;
+      }
+    }
+
+    // ── Cap sensor calibration ────────────────────────────────
+    async function calibrate(type) {
+      const btn = document.getElementById('cal-' + type + '-btn');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/calibrate', {
+          method: 'POST',
+          body: new URLSearchParams({ type: type })
+        });
+        const d = await r.json();
+        renderCalStatus(d);
+        btn.textContent = { nothing: 'Nothing ✓', bottle: 'Bottle ✓', hand: 'Hand ✓' }[type];
+      } catch(_) {
+        btn.textContent = 'Error';
+      }
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = { nothing: 'Nothing', bottle: 'Bottle', hand: 'Hand' }[type];
+      }, 2000);
+    }
+
+    function renderCalStatus(d) {
+      const el = document.getElementById('cal-status');
+      if (!el) return;
+      let html = '<div style="line-height:1.9;font-size:0.78rem;">';
+      html += `<div class="cal-row">Nothing: <span>${d.nothing || '--'}</span></div>`;
+      html += `<div class="cal-row">Bottle:  <span>${d.bottle  || '--'}</span></div>`;
+      html += `<div class="cal-row">Hand:    <span>${d.hand    || '--'}</span></div>`;
+      if (d.nothing && d.bottle && d.hand) {
+        html += `<div class="cal-row" style="margin-top:6px;color:#4ade80;">Min threshold: <span style="color:#4ade80;">${d.min}</span></div>`;
+        html += `<div class="cal-row" style="color:#4ade80;">Max threshold: <span style="color:#4ade80;">${d.max}</span></div>`;
+      }
+      html += '</div>';
+      el.innerHTML = html;
     }
 
     // ── Buzzer toggle (dev mode) ──────────────────────────────
@@ -645,15 +753,49 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         const capRawEl = document.getElementById('cap-raw');
         if (capRawEl) capRawEl.textContent = d.capRaw ?? '--';
         badge('b-cap',   d.capDetected);
-        badge('b-light', d.lightDetected);
+        badge('b-light', !d.lightDetected); // module LOW = light on, so invert for display
         badge('b-alarm', d.alarmActive);
         document.getElementById('toggle-buzzer').checked = !!d.buzzerOn;
+
+        // ── Config panel ──────────────────────────────────────
+        const cfgSsid = document.getElementById('cfg-ssid');
+        if (cfgSsid) cfgSsid.textContent = d.storedSSID || '(none)';
+        const cfgNtp = document.getElementById('cfg-ntp');
+        if (cfgNtp) {
+          cfgNtp.textContent = d.timeSet ? 'YES' : 'NO';
+          cfgNtp.className = 'badge ' + (d.timeSet ? 'on' : 'off');
+        }
+        const cfgTime = document.getElementById('cfg-time');
+        if (cfgTime) cfgTime.textContent = d.time || '--:--:--';
+        // Populate threshold inputs only when not focused
+        const tMin = document.getElementById('thresh-min');
+        const tMax = document.getElementById('thresh-max');
+        if (tMin && document.activeElement !== tMin && d.capMin) tMin.value = d.capMin;
+        if (tMax && document.activeElement !== tMax && d.capMax) tMax.value = d.capMax;
 
       } catch(_) {}
     }
 
+    // ── Manual threshold save ─────────────────────────────────
+    async function saveThresholds() {
+      const minVal = document.getElementById('thresh-min').value;
+      const maxVal = document.getElementById('thresh-max').value;
+      const btn = document.getElementById('thresh-save-btn');
+      if (!minVal || !maxVal) return;
+      btn.disabled = true;
+      try {
+        const r = await fetch('/setthresholds', {
+          method: 'POST',
+          body: new URLSearchParams({ min: minVal, max: maxVal })
+        });
+        btn.textContent = r.ok ? 'Saved!' : 'Error';
+      } catch(_) { btn.textContent = 'Error'; }
+      setTimeout(() => { btn.textContent = 'Save Thresholds'; btn.disabled = false; }, 2000);
+    }
+
     poll();
     setInterval(poll, 500);
+    loadNetworks();
   </script>
 
 </body>
@@ -663,6 +805,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 // ── setupWebServer ────────────────────────────────────────────
 void setupWebServer() {
     if (serverStarted) return;
+
+    // Load persisted calibration points so buttons show correct state after reboot
+    preferences.begin(PREF_NAMESPACE, true);
+    calNothing = preferences.getUInt(PREF_KEY_CAL_NOTHING, 0);
+    calBottle  = preferences.getUInt(PREF_KEY_CAL_BOTTLE,  0);
+    calHand    = preferences.getUInt(PREF_KEY_CAL_HAND,    0);
+    preferences.end();
 
     // ── GET / ─────────────────────────────────────────────────
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -679,7 +828,11 @@ void setupWebServer() {
         j += "\"alarmActive\":"       + String(alarmActive     ? "true" : "false") + ",";
         j += "\"capRaw\":"             + String(capRawValue) + ",";
         j += "\"capDetected\":"       + String(capDetected     ? "true" : "false") + ",";
-        j += "\"lightDetected\":"     + String(lightDetected   ? "true" : "false");
+        j += "\"lightDetected\":"     + String(lightDetected   ? "true" : "false") + ",";
+        j += "\"storedSSID\":"        "\"" + storedSSID + "\",";
+        j += "\"capMin\":"            + String(capBottleMin) + ",";
+        j += "\"capMax\":"            + String(capBottleMax) + ",";
+        j += "\"timeSet\":"           + String(timeClient.isTimeSet() ? "true" : "false");
         j += "}";
         request->send(200, "application/json", j);
     });
@@ -737,6 +890,79 @@ void setupWebServer() {
         }
     });
 
+    // ── GET /networks ─────────────────────────────────────────
+    // Returns JSON array of all saved networks [{ssid, pass}, ...].
+    server.on("/networks", HTTP_GET, [](AsyncWebServerRequest *request) {
+        preferences.begin(PREF_NAMESPACE, true);
+        int count = preferences.getInt(PREF_KEY_NET_COUNT, 0);
+        String j = "[";
+        for (int i = 0; i < count; i++) {
+            if (i > 0) j += ",";
+            String ssid = preferences.getString(("net_ssid_" + String(i)).c_str(), "");
+            String pass = preferences.getString(("net_pass_" + String(i)).c_str(), "");
+            ssid.replace("\\", "\\\\"); ssid.replace("\"", "\\\"");
+            pass.replace("\\", "\\\\"); pass.replace("\"", "\\\"");
+            j += "{\"ssid\":\"" + ssid + "\",\"pass\":\"" + pass + "\"}";
+        }
+        preferences.end();
+        j += "]";
+        request->send(200, "application/json", j);
+    });
+
+    // ── POST /calibrate ───────────────────────────────────────
+    // Captures current capRawValue for the given type (nothing/bottle/hand),
+    // recomputes thresholds when all three are set, saves to NVS.
+    server.on("/calibrate", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("type", true)) {
+            request->send(400, "text/plain", "Missing type");
+            return;
+        }
+        String t = request->getParam("type", true)->value();
+        uint32_t reading = capRawValue;
+        if      (t == "nothing") calNothing = reading;
+        else if (t == "bottle")  calBottle  = reading;
+        else if (t == "hand")    calHand    = reading;
+        else { request->send(400, "text/plain", "Bad type"); return; }
+
+        if (calNothing > 0 && calBottle > 0 && calHand > 0) {
+            capBottleMin = (calNothing + calBottle) / 2;
+            capBottleMax = (calBottle  + calHand)   / 2;
+            preferences.begin(PREF_NAMESPACE, false);
+            preferences.putUInt(PREF_KEY_CAL_NOTHING, calNothing);
+            preferences.putUInt(PREF_KEY_CAL_BOTTLE,  calBottle);
+            preferences.putUInt(PREF_KEY_CAL_HAND,    calHand);
+            preferences.putUInt(PREF_KEY_CAP_MIN,     capBottleMin);
+            preferences.putUInt(PREF_KEY_CAP_MAX,     capBottleMax);
+            preferences.end();
+            Serial.printf("[CAL] nothing=%lu  bottle=%lu  hand=%lu  min=%lu  max=%lu\n",
+                          calNothing, calBottle, calHand, capBottleMin, capBottleMax);
+        }
+
+        String j = "{";
+        j += "\"nothing\":" + String(calNothing) + ",";
+        j += "\"bottle\":"  + String(calBottle)  + ",";
+        j += "\"hand\":"    + String(calHand)    + ",";
+        j += "\"min\":"     + String(capBottleMin) + ",";
+        j += "\"max\":"     + String(capBottleMax);
+        j += "}";
+        request->send(200, "application/json", j);
+    });
+
+    // ── POST /setthresholds ───────────────────────────────────
+    // Manually overrides cap sensor min/max thresholds and persists to NVS.
+    server.on("/setthresholds", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (request->hasParam("min", true))
+            capBottleMin = (uint32_t)request->getParam("min", true)->value().toInt();
+        if (request->hasParam("max", true))
+            capBottleMax = (uint32_t)request->getParam("max", true)->value().toInt();
+        preferences.begin(PREF_NAMESPACE, false);
+        preferences.putUInt(PREF_KEY_CAP_MIN, capBottleMin);
+        preferences.putUInt(PREF_KEY_CAP_MAX, capBottleMax);
+        preferences.end();
+        Serial.printf("[CFG] Thresholds updated: min=%lu  max=%lu\n", capBottleMin, capBottleMax);
+        request->send(200, "text/plain", "OK");
+    });
+
     // ── POST /setalarm ────────────────────────────────────────
     // Updates the alarm time in NVS and globals without rebooting.
     server.on("/setalarm", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -778,6 +1004,33 @@ void setupWebServer() {
         preferences.putString(PREF_KEY_SSID,  newSSID);
         preferences.putString(PREF_KEY_PASS,  newPass);
         preferences.putString(PREF_KEY_ALARM, newAlarm);
+
+        // Upsert into saved network list (max MAX_SAVED_NETWORKS, drop oldest on overflow)
+        int count = preferences.getInt(PREF_KEY_NET_COUNT, 0);
+        bool found = false;
+        for (int i = 0; i < count; i++) {
+            if (preferences.getString(("net_ssid_" + String(i)).c_str(), "") == newSSID) {
+                preferences.putString(("net_pass_" + String(i)).c_str(), newPass);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (count >= MAX_SAVED_NETWORKS) {
+                // Shift list left to drop the oldest entry
+                for (int i = 0; i < count - 1; i++) {
+                    preferences.putString(("net_ssid_" + String(i)).c_str(),
+                        preferences.getString(("net_ssid_" + String(i + 1)).c_str(), ""));
+                    preferences.putString(("net_pass_" + String(i)).c_str(),
+                        preferences.getString(("net_pass_" + String(i + 1)).c_str(), ""));
+                }
+                count = MAX_SAVED_NETWORKS - 1;
+            }
+            preferences.putString(("net_ssid_" + String(count)).c_str(), newSSID);
+            preferences.putString(("net_pass_" + String(count)).c_str(), newPass);
+            preferences.putInt(PREF_KEY_NET_COUNT, count + 1);
+        }
+
         preferences.end();
 
         Serial.printf("[SAVE] SSID='%s'  Alarm='%s' — rebooting\n",
