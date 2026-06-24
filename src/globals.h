@@ -57,6 +57,13 @@ extern uint32_t capBottleMax;  // Upper bound for bottle detection (default CAP_
 // ── WiFi connection timeout (runtime, configurable via Config panel) ──
 extern uint32_t ntpConnectTimeoutMs; // How long to wait for home WiFi before giving up
 
+// ── Manual time tracking ──────────────────────────────────────
+extern bool          manualTimeSet; // true once user sets time via Config panel
+extern unsigned long manualSetAt;   // millis() when manual time was recorded
+extern int           manualHour;    // 0-23
+extern int           manualMinute;  // 0-59
+extern int           manualSecond;  // 0-59
+
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute
 

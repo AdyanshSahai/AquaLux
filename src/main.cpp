@@ -96,7 +96,7 @@ void setup() {
 
     Serial.printf("[SETUP] Boot complete | Alarm=%02d:%02d | Time known=%s\n",
                   alarmHour, alarmMinute,
-                  timeClient.isTimeSet() ? "YES" : "NO (no creds yet)");
+                  isAnyTimeSet() ? "YES" : "NO (set manually in Config or sync WiFi)");
     Serial.println("===== AquaLux RUNNING =====\n");
 }
 
@@ -110,9 +110,9 @@ void loop() {
     handleResetButton();
 
     // ── 2. Time-dependent logic (only valid once NTP has synced) ──
-    if (timeClient.isTimeSet()) {
-        int curHour   = timeClient.getHours();   // 0–23, respects NTP_UTC_OFFSET_SEC
-        int curMinute = timeClient.getMinutes(); // 0–59
+    if (isAnyTimeSet()) {
+        int curHour   = getCurrentHour();
+        int curMinute = getCurrentMinute();
 
         // ── 2a. Daily 3 am NTP resync ─────────────────────────
         // Fires once per day at exactly NTP_RESYNC_HOUR:NTP_RESYNC_MINUTE

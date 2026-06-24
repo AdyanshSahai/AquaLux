@@ -846,7 +846,7 @@ void setupWebServer() {
 
     // ── GET /status ───────────────────────────────────────────
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        String t = timeClient.isTimeSet() ? timeClient.getFormattedTime() : "--:--:--";
+        String t = getCurrentTimeStr();
         String j = "{";
         j += "\"time\":"          "\"" + t             + "\",";
         j += "\"alarmTime\":"     "\"" + alarmTimeStr   + "\",";
@@ -859,7 +859,7 @@ void setupWebServer() {
         j += "\"capMin\":"            + String(capBottleMin) + ",";
         j += "\"capMax\":"            + String(capBottleMax) + ",";
         j += "\"ntpTimeoutSec\":"     + String(ntpConnectTimeoutMs / 1000) + ",";
-        j += "\"timeSet\":"           + String(timeClient.isTimeSet() ? "true" : "false");
+        j += "\"timeSet\":"           + String(isAnyTimeSet() ? "true" : "false");
         j += "}";
         request->send(200, "application/json", j);
     });
@@ -985,9 +985,11 @@ void setupWebServer() {
         h = constrain(h, 0, 23);
         m = constrain(m, 0, 59);
         s = constrain(s, 0, 59);
-        unsigned long epoch = 86400UL + (unsigned long)(h * 3600 + m * 60 + s)
-                              - (unsigned long)NTP_UTC_OFFSET_SEC;
-        timeClient.setEpochTime(epoch);
+        manualHour    = h;
+        manualMinute  = m;
+        manualSecond  = s;
+        manualSetAt   = millis();
+        manualTimeSet = true;
         Serial.printf("[TIME] Manual time set to %02d:%02d:%02d\n", h, m, s);
         request->send(200, "text/plain", "OK");
     });

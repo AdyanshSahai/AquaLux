@@ -4,6 +4,45 @@
 
 #include "wifi_ntp.h"
 
+// ── Time helpers ─────────────────────────────────────────────
+// NTP takes priority; manual time is a millis()-tracked fallback.
+
+bool isAnyTimeSet() {
+    return timeClient.isTimeSet() || manualTimeSet;
+}
+
+static unsigned long _manualTotalSecs() {
+    unsigned long elapsed = (millis() - manualSetAt) / 1000UL;
+    return (unsigned long)manualHour * 3600UL
+         + (unsigned long)manualMinute * 60UL
+         + (unsigned long)manualSecond
+         + elapsed;
+}
+
+int getCurrentHour() {
+    if (timeClient.isTimeSet()) return timeClient.getHours();
+    if (!manualTimeSet) return 0;
+    return (_manualTotalSecs() / 3600UL) % 24;
+}
+
+int getCurrentMinute() {
+    if (timeClient.isTimeSet()) return timeClient.getMinutes();
+    if (!manualTimeSet) return 0;
+    return (_manualTotalSecs() / 60UL) % 60;
+}
+
+String getCurrentTimeStr() {
+    if (timeClient.isTimeSet()) return timeClient.getFormattedTime();
+    if (!manualTimeSet) return "--:--:--";
+    unsigned long t = _manualTotalSecs();
+    int h = (t / 3600UL) % 24;
+    int m = (t / 60UL)   % 60;
+    int s =  t            % 60;
+    char buf[9];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", h, m, s);
+    return String(buf);
+}
+
 // ── parseAlarmTime ────────────────────────────────────────────
 // Splits a "HH:MM" string into alarmHour and alarmMinute integers.
 // Called whenever a new alarm string is loaded from Preferences.

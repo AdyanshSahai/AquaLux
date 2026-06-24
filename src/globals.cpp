@@ -46,6 +46,13 @@ uint32_t capBottleMax = CAP_BOTTLE_MAX;
 // ── WiFi connection timeout ───────────────────────────────────
 uint32_t ntpConnectTimeoutMs = NTP_CONNECT_TIMEOUT_MS;
 
+// ── Manual time tracking ──────────────────────────────────────
+bool          manualTimeSet = false;
+unsigned long manualSetAt   = 0;
+int           manualHour    = 0;
+int           manualMinute  = 0;
+int           manualSecond  = 0;
+
 // ── Daily NTP resync tracking ─────────────────────────────────
 bool ntpResynced3am = false;
 

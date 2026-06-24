@@ -16,3 +16,9 @@ bool loadPreferences();
 // Briefly joins home WiFi, syncs NTP, disconnects, restores AP mode.
 // Returns true if the time was successfully updated.
 bool syncNTP();
+
+// Time helpers — use NTP if synced, fall back to manually-set time + millis() drift.
+bool   isAnyTimeSet();
+int    getCurrentHour();
+int    getCurrentMinute();
+String getCurrentTimeStr();
