@@ -36,7 +36,8 @@
 // ── NTP / scheduling constants ────────────────────────────────
 #define NTP_RESYNC_HOUR           3  // 24-hour clock hour for daily NTP resync
 #define NTP_RESYNC_MINUTE         0  // Minute within that hour
-#define NTP_CONNECT_TIMEOUT_MS 5000  // Max ms to wait for home-WiFi connection during NTP sync
+#define NTP_CONNECT_TIMEOUT_MS 15000 // Default ms to wait for home-WiFi (overridden by NVS at runtime)
+#define PREF_KEY_NTP_TIMEOUT   "ntp_timeout" // uint32: stored timeout in ms
 #define NTP_AUTO_UPDATE_MS    86400000UL // 24 h internal NTPClient update interval (we manage syncs manually)
 
 // ── Network constants ─────────────────────────────────────────

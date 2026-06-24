@@ -54,6 +54,9 @@ extern bool     lightDetected; // Photoresistor module DO HIGH = ambient light p
 extern uint32_t capBottleMin;  // Lower bound for bottle detection (default CAP_BOTTLE_MIN)
 extern uint32_t capBottleMax;  // Upper bound for bottle detection (default CAP_BOTTLE_MAX)
 
+// ── WiFi connection timeout (runtime, configurable via Config panel) ──
+extern uint32_t ntpConnectTimeoutMs; // How long to wait for home WiFi before giving up
+
 // ── Daily NTP resync tracking ─────────────────────────────────
 extern bool ntpResynced3am;  // Blocks the 3 am resync from firing more than once per minute
 

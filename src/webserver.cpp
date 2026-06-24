@@ -518,6 +518,17 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
       <div class="card" style="margin-top:14px;">
         <div class="row" style="flex-direction:column;align-items:flex-start;gap:12px;">
+          <span class="label" style="font-weight:600;color:#fff;">WiFi Connect Timeout</span>
+          <div style="display:flex;gap:8px;width:100%;align-items:center;">
+            <input type="number" id="timeout-input" min="5" max="60" placeholder="15" style="flex:1;">
+            <span style="font-size:0.85rem;color:#666;white-space:nowrap;">seconds</span>
+          </div>
+          <button class="btn btn-green" id="timeout-save-btn" onclick="saveTimeout()">Save Timeout</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row" style="flex-direction:column;align-items:flex-start;gap:12px;">
           <span class="label" style="font-weight:600;color:#fff;">Cap Thresholds</span>
           <div class="field" style="width:100%;margin-bottom:0;">
             <label>Min (bottle lower bound)</label>
@@ -772,8 +783,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         const tMax = document.getElementById('thresh-max');
         if (tMin && document.activeElement !== tMin && d.capMin) tMin.value = d.capMin;
         if (tMax && document.activeElement !== tMax && d.capMax) tMax.value = d.capMax;
+        const tOut = document.getElementById('timeout-input');
+        if (tOut && document.activeElement !== tOut && d.ntpTimeoutSec) tOut.value = d.ntpTimeoutSec;
 
       } catch(_) {}
+    }
+
+    // ── WiFi timeout save ─────────────────────────────────────
+    async function saveTimeout() {
+      const val = parseInt(document.getElementById('timeout-input').value);
+      const btn = document.getElementById('timeout-save-btn');
+      if (!val || val < 5) return;
+      btn.disabled = true;
+      try {
+        const r = await fetch('/settimeout', {
+          method: 'POST',
+          body: new URLSearchParams({ seconds: val })
+        });
+        btn.textContent = r.ok ? 'Saved!' : 'Error';
+      } catch(_) { btn.textContent = 'Error'; }
+      setTimeout(() => { btn.textContent = 'Save Timeout'; btn.disabled = false; }, 2000);
     }
 
     // ── Manual threshold save ─────────────────────────────────
@@ -832,6 +861,7 @@ void setupWebServer() {
         j += "\"storedSSID\":"        "\"" + storedSSID + "\",";
         j += "\"capMin\":"            + String(capBottleMin) + ",";
         j += "\"capMax\":"            + String(capBottleMax) + ",";
+        j += "\"ntpTimeoutSec\":"     + String(ntpConnectTimeoutMs / 1000) + ",";
         j += "\"timeSet\":"           + String(timeClient.isTimeSet() ? "true" : "false");
         j += "}";
         request->send(200, "application/json", j);
@@ -946,6 +976,23 @@ void setupWebServer() {
         j += "\"max\":"     + String(capBottleMax);
         j += "}";
         request->send(200, "application/json", j);
+    });
+
+    // ── POST /settimeout ──────────────────────────────────────
+    // Sets WiFi connection timeout in seconds, persists to NVS.
+    server.on("/settimeout", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("seconds", true)) {
+            request->send(400, "text/plain", "Missing seconds");
+            return;
+        }
+        uint32_t secs = (uint32_t)request->getParam("seconds", true)->value().toInt();
+        if (secs < 5) secs = 5;
+        ntpConnectTimeoutMs = secs * 1000;
+        preferences.begin(PREF_NAMESPACE, false);
+        preferences.putUInt(PREF_KEY_NTP_TIMEOUT, ntpConnectTimeoutMs);
+        preferences.end();
+        Serial.printf("[CFG] WiFi timeout set to %lu s\n", secs);
+        request->send(200, "text/plain", "OK");
     });
 
     // ── POST /setthresholds ───────────────────────────────────

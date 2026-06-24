@@ -32,8 +32,9 @@ bool loadPreferences() {
     alarmTimeStr   = preferences.getString(PREF_KEY_ALARM, PREF_ALARM_DEFAULT);
 
     // Load calibrated cap thresholds if they exist, else keep compile-time defaults
-    capBottleMin = preferences.getUInt(PREF_KEY_CAP_MIN, CAP_BOTTLE_MIN);
-    capBottleMax = preferences.getUInt(PREF_KEY_CAP_MAX, CAP_BOTTLE_MAX);
+    capBottleMin        = preferences.getUInt(PREF_KEY_CAP_MIN,      CAP_BOTTLE_MIN);
+    capBottleMax        = preferences.getUInt(PREF_KEY_CAP_MAX,      CAP_BOTTLE_MAX);
+    ntpConnectTimeoutMs = preferences.getUInt(PREF_KEY_NTP_TIMEOUT,  NTP_CONNECT_TIMEOUT_MS);
 
     preferences.end(); // Release the NVS handle; always pair begin/end to avoid handle leaks
 
@@ -58,13 +59,14 @@ bool syncNTP() {
     Serial.printf("[NTP] Connecting to '%s' for NTP sync...\n", storedSSID.c_str());
 
     WiFi.mode(WIFI_AP_STA);
-    WiFi.setTxPower(WIFI_POWER_8_5dBm); // Reduce TX power to cut peak current draw
-    WiFi.begin(storedSSID.c_str(), storedPassword.c_str()); // Kick off STA association
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    delay(500); // Let the WiFi stack settle after the mode switch before associating
+    WiFi.begin(storedSSID.c_str(), storedPassword.c_str());
 
     unsigned long connectStart = millis();
     while (WiFi.status() != WL_CONNECTED &&
-           millis() - connectStart < NTP_CONNECT_TIMEOUT_MS) {
-        delay(100); // 10 Hz poll — yields to other FreeRTOS tasks without busy-spinning
+           millis() - connectStart < ntpConnectTimeoutMs) {
+        delay(100);
     }
 
     if (WiFi.status() != WL_CONNECTED) {
