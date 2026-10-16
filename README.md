@@ -21,12 +21,12 @@ This is a breadboard prototype, not a finished product. See [Known Issues](#know
 | Part | Notes |
 |------|-------|
 | LOLIN S2 Mini (ESP32-S2) | Uses the chip's built-in touch sensing on GPIO 5 |
-| Aluminium foil pad | Kitchen foil, a circle taped to the top of the AquaLux robot and covered with electrical tape |
+| Aluminium foil pad | Kitchen foil, a circle taped to the top of the device and covered with electrical tape |
 | Photoresistor module | Digital output (DO) pin, read on GPIO 21 |
 | Buzzer | Driven through a 2N2222 transistor from GPIO 40 |
 | Push button | Between GPIO 38 and ground, internal pull-up |
 | 3.7 V LiPo battery | Power |
-| J5109 | Also in the build |
+| J5109 | Charge, boost and regulator module between the LiPo and the board |
 
 Pin numbers and timings are all in [src/config.h](src/config.h). Do not use GPIO 33 to 37 on the S2 Mini. They are the PSRAM interface and using them as GPIO crashes the board.
 
