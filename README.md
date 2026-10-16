@@ -26,7 +26,7 @@ This is a breadboard prototype, not a finished product. See [Known Issues](#know
 | Buzzer | Driven through a 2N2222 transistor from GPIO 40 |
 | Push button | Between GPIO 38 and ground, internal pull-up |
 | 3.7 V LiPo battery | Power |
-| J5109 | Charge, boost and regulator module between the LiPo and the board |
+| J5019 | Charge, boost and regulator module between the LiPo and the board |
 
 Pin numbers and timings are all in [src/config.h](src/config.h). Do not use GPIO 33 to 37 on the S2 Mini. They are the PSRAM interface and using them as GPIO crashes the board.
 
